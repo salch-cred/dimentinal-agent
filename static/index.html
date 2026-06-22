@@ -900,11 +900,22 @@ h1, h2, h3, h4 { margin: 0; font-weight: 500; }
           <button type="button" class="btn btn-sm" id="viewCellsBtn" style="margin-left: auto;">View Raw Cells</button>
         </div>
 
-        <div id="cellsViewer" style="display: none; margin-top: 16px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); padding: 16px; border-radius: 2px; max-height: 250px; overflow-y: auto;">
+        <div id="cellsViewer" style="display: none; margin-top: 16px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); padding: 16px; border-radius: 2px; max-height: 350px; overflow-y: auto;">
           <h4 style="font-family:var(--font-mono); font-size:10px; color:var(--muted); text-transform:uppercase; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
             <span>Ingested Document Cells</span>
             <span id="cellsCount" style="color:var(--text-soft)"></span>
           </h4>
+          
+          <div style="margin-bottom: 16px; padding: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.01); border-radius: 2px; font-size: 12px; color: var(--text-soft); line-height: 1.5;">
+            <strong style="color: var(--text); font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; display: block; margin-bottom: 6px;">💡 Understanding Ingested Cells</strong>
+            Our parser binds raw sheet data to its structural metadata to make it semantic:
+            <ul style="margin: 6px 0 0 16px; padding: 0; list-style-type: decimal;">
+              <li><strong style="color: var(--accent);">Source Coordinate</strong>: The exact Excel tab and cell coordinate (e.g. <code>Sheet!B4</code>) for auditing.</li>
+              <li><strong style="color: var(--text-soft);">Ingested Context</strong>: The row labels, column headers, and scale footnotes compiled into metadata.</li>
+              <li><strong>Ingested Content</strong>: The rich text value indexed for retrieval, keeping headers and values united.</li>
+            </ul>
+          </div>
+
           <div id="cellsGrid" class="cells-grid"></div>
         </div>
 
