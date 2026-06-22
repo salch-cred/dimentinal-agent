@@ -39,6 +39,10 @@ class AskRequest(BaseModel):
     doc_path: str = Field(..., max_length=MAX_DOC_PATH_LEN)
 
 
+class StressTestRequest(BaseModel):
+    doc_path: str = Field(..., max_length=MAX_DOC_PATH_LEN)
+
+
 @app.exception_handler(UnsafePathError)
 async def _unsafe_path_handler(_req, exc: UnsafePathError):
     # 400, not 500 — this is a client error (disallowed path).
@@ -188,6 +192,78 @@ async def upload_file(request: Request, filename: str):
         
     res_path = f"/tmp/{safe_name}" if "VERCEL" in os.environ else f"sample_data/{safe_name}"
     return {"status": "ok", "filename": res_path}
+
+
+@app.post("/stress_test")
+def stress_test(req: StressTestRequest):
+    traps = [
+        {
+            "id": "scale",
+            "name": "Scale Trap",
+            "description": "Baseline RAG ignores '$ in thousands' footnote; calculates raw number. Prover scales it correctly.",
+            "question": "What was ACME's total revenue for FY2024 as reported under the 'in thousands' footnote?",
+        },
+        {
+            "id": "period",
+            "name": "Period Mismatch",
+            "description": "Baseline RAG picks Q4-2024 instead of FY2024. Prover enforces strict period checking.",
+            "question": "What was ACME's total revenue for Q4-2024?",
+        },
+        {
+            "id": "entity",
+            "name": "Entity Mismatch",
+            "description": "Baseline RAG confuses Cloud Segment net income with Consolidated. Prover enforces entity checks.",
+            "question": "What was ACME consolidated net income for FY2024 (not the Cloud Segment)?",
+        },
+        {
+            "id": "flowstock",
+            "name": "Flow + Stock Trap",
+            "description": "LLM tries to sum Flow (Revenue) and Stock (Cash). Prover's Guard rejects the operation.",
+            "question": "What is ACME's FY2024 total revenue plus cash on hand at year-end FY2024?",
+        },
+        {
+            "id": "clean",
+            "name": "Clean Margins",
+            "description": "A clean ratio calculation. Both models should successfully resolve this.",
+            "question": "What was ACME's FY2024 gross margin as a percentage?",
+        }
+    ]
+    
+    results = []
+    for t in traps:
+        req_ask = AskRequest(question=t["question"], doc_path=req.doc_path)
+        
+        # Run baseline
+        try:
+            base_res = baseline(req_ask)
+        except Exception as e:
+            base_res = {"answer": f"Error: {str(e)}", "citation": None}
+            
+        # Run proof
+        try:
+            proof_res = run_proof_pipeline(t["question"], req.doc_path)
+            proof_dump = proof_res.model_dump()
+        except Exception as e:
+            proof_dump = {
+                "answer": None,
+                "rejected": True,
+                "reason": str(e),
+                "citations": [],
+                "trace": [],
+                "dimension_checks": [],
+                "verifier_verdict": "error",
+            }
+            
+        results.append({
+            "id": t["id"],
+            "name": t["name"],
+            "description": t["description"],
+            "question": t["question"],
+            "baseline": base_res,
+            "proof": proof_dump
+        })
+        
+    return {"results": results}
 
 
 # --------------------------------------------------------------------------- #

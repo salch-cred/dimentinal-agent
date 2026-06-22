@@ -908,7 +908,26 @@ h1, h2, h3, h4 { margin: 0; font-weight: 500; }
           <div id="cellsGrid" class="cells-grid"></div>
         </div>
 
-        <div class="chips" id="chips">
+        <div style="margin-top: 32px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 24px; flex-wrap: wrap; gap: 12px;">
+          <div>
+            <h4 style="font-family: var(--font-mono); font-size: 11px; color: var(--text-soft); text-transform: uppercase; margin-bottom: 4px;">Ablation Stress-Testing</h4>
+            <p style="font-size: 12.5px; color: var(--muted); margin: 0;">Execute all adversarial traps side-by-side to benchmark system safety.</p>
+          </div>
+          <button type="button" class="btn btn-primary" id="runStressTestBtn" style="background: var(--amber); border-color: var(--amber); color: #000; font-weight: 600;">
+            ⚡ Run Stress-Test Simulator
+          </button>
+        </div>
+
+        <div id="stressTestViewer" style="display: none; margin-top: 20px; border: 1px solid var(--amber-border); background: rgba(245, 158, 11, 0.01); padding: 24px; border-radius: 3px;">
+          <h3 style="font-family: var(--font-serif); font-size: 20px; color: var(--amber); margin-top: 0; margin-bottom: 8px;">Adversarial Fuzzing Simulator</h3>
+          <p style="font-size: 13px; color: var(--text-soft); margin-top: 0; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 12px;">
+            A side-by-side benchmark executing dimensional traps against Vanilla RAG and our Proof-Carrying Guard.
+          </p>
+          
+          <div id="stressTestGrid" style="display: flex; flex-direction: column; gap: 16px;"></div>
+        </div>
+
+        <div class="chips" id="chips" style="margin-top: 32px;">
           <span class="chips-label">Preloaded Test Cases</span>
         </div>
 
@@ -1329,6 +1348,87 @@ fileInput.addEventListener("change", async () => {
     uploadBtn.disabled = false;
     uploadBtn.textContent = "Upload Data";
     fileInput.value = "";
+  }
+});
+
+$("runStressTestBtn").addEventListener("click", async () => {
+  const btn = $("runStressTestBtn");
+  const viewer = $("stressTestViewer");
+  const grid = $("stressTestGrid");
+  const docPath = $("docpathInput").value.trim();
+  
+  btn.disabled = true;
+  btn.textContent = "⚡ Running Stress-Test…";
+  viewer.style.display = "block";
+  grid.innerHTML = '<div style="color: var(--muted); text-align: center; font-family: var(--font-mono); padding: 32px;">Initializing Adversarial Traps...</div>';
+  
+  try {
+    const res = await post("/stress_test", { doc_path: docPath });
+    if (!res || !res.results || !Array.isArray(res.results)) {
+      grid.innerHTML = '<div style="color: var(--rose); text-align: center; padding: 16px;">Failed to run stress test.</div>';
+      return;
+    }
+    
+    grid.innerHTML = "";
+    res.results.forEach(item => {
+      const card = document.createElement("div");
+      card.style.cssText = `
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.01);
+        padding: 16px;
+        border-radius: 3px;
+      `;
+      
+      const isOk = item.proof.rejected || item.id === "clean";
+      const badgeHtml = isOk 
+        ? `<span class="badge survived" style="font-size: 9px; padding: 2px 6px;">✓ SHIELDED</span>`
+        : `<span class="badge flagged" style="font-weight: bold; background: var(--rose-soft); border: 1px solid var(--rose-border); color: var(--rose); font-size: 9px; padding: 2px 6px;">⚠ VULNERABLE</span>`;
+        
+      const isRejected = item.proof.rejected;
+      let proofVal = "";
+      if (isRejected) {
+        proofVal = `<span style="color: var(--rose); font-weight: 500;">✕ BLOCKED</span><br><span class="font-mono" style="font-size: 11.5px; color: var(--text-soft);">${escapeHtml(item.proof.reason)}</span>`;
+      } else {
+        proofVal = `<span class="check">✓</span> <span class="font-mono" style="color: var(--accent); font-weight: 500;">${escapeHtml(item.proof.answer || "—")}</span>`;
+      }
+      
+      const baselineVal = `<span style="color: var(--text);">${escapeHtml(item.baseline.answer != null ? item.baseline.answer : "—")}</span>`;
+      
+      card.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+          <strong style="font-family: var(--font-mono); font-size: 12px; color: var(--text);">${escapeHtml(item.name)}</strong>
+          ${badgeHtml}
+        </div>
+        <div style="font-size: 12.5px; color: var(--text-soft); margin-bottom: 12px;">${escapeHtml(item.description)}</div>
+        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--muted); background: rgba(0,0,0,0.15); padding: 8px 12px; border-radius: 2px; margin-bottom: 16px; border: 1px solid var(--border-muted); word-break: break-word;">
+          Q: "${escapeHtml(item.question)}"
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; border-top: 1px solid var(--border-muted); padding-top: 12px;">
+          <div>
+            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--rose); text-transform: uppercase; margin-bottom: 4px;">Vanilla RAG Baseline</div>
+            <div class="font-mono" style="font-size: 13.5px; font-weight: 500;">
+              ${baselineVal}
+            </div>
+          </div>
+          <div>
+            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--accent); text-transform: uppercase; margin-bottom: 4px;">Proof-Carrying Prover</div>
+            <div style="font-size: 13.5px; font-weight: 500; line-height: 1.4;">
+              ${proofVal}
+            </div>
+          </div>
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+    
+    showToast("Stress-Test Simulator execution complete!", "success");
+  } catch (e) {
+    grid.innerHTML = '<div style="color: var(--rose); text-align: center; padding: 16px;">Error running stress test: ' + escapeHtml(e.message) + '</div>';
+    showToast("Stress-test run encountered an error", "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "⚡ Run Stress-Test Simulator";
   }
 });
 
