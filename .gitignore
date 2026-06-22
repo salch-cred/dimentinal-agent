@@ -1,0 +1,16 @@
+# Secrets — never commit
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# LLM call cache (regenerable)
+cache.json
+
+# OS cruft
+.DS_Store
+Thumbs.db

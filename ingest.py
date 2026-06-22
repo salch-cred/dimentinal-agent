@@ -1,0 +1,337 @@
+"""Document ingestion + table-aware retrieval.
+
+Keeps coordinates (page / table / cell) for citation, and crucially preserves
+*context*: the table title, the column header, and any footnote like
+"$ in thousands" — that context is what lets the typed extractor assign the
+correct `scale` to every figure.
+"""
+from __future__ import annotations
+
+import os
+import re
+from typing import List
+
+from schemas import Span
+
+# Tokens that signal a scale qualifier; the extractor reads these from context.
+_SCALE_HINTS = {
+    "thousands": 1e3,
+    "million": 1e6,
+    "millions": 1e6,
+    "billion": 1e9,
+    "billions": 1e9,
+}
+
+
+def _detect_scale(context: str) -> float:
+    """Best-effort: read 'in thousands' / 'in millions' style hints."""
+    low = context.lower()
+    for word, scale in _SCALE_HINTS.items():
+        if re.search(rf"\b(in\s+)?{word}\b", low):
+            return scale
+    return 1.0
+
+
+def _clean(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "")).strip()
+
+
+_PERIOD_TOKEN = re.compile(r"\b(FY\s*\d{4}|Q[1-4][\s\-]?\d{4}|as_of_\d|FY\d{4}|Q[1-4]\b|\b(19|20)\d{2}\b)", re.I)
+
+
+def _looks_like_header(cells: List[str]) -> bool:
+    """A header row has period-like tokens (FY2024, Q4-2024, as_of_...) in >=2 cells."""
+    hits = sum(1 for c in cells if c and _PERIOD_TOKEN.search(c))
+    return hits >= 2
+
+
+def _sheet_scale_hint(ws_title: str, all_text: str) -> str:
+    """Find a '$ in thousands/millions' style footnote anywhere on the sheet."""
+    low = all_text.lower()
+    for word in ("thousands", "millions", "billions"):
+        if re.search(rf"\bin\s+{word}\b", low):
+            return f"$ in {word}"
+    return ""
+
+
+def ingest_xlsx(path: str) -> List[Span]:
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, data_only=True)
+    spans: List[Span] = []
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        # Pre-scan all text on the sheet for a scale footnote.
+        sheet_text = " ".join(
+            str(v) for row in rows for v in (row or []) if v is not None
+        )
+        hint = _sheet_scale_hint(ws.title, sheet_text)
+
+        # Find the header row: first row that looks like a period header.
+        header_idx = None
+        header: List[str] = []
+        for ri, row in enumerate(rows):
+            cells = [("" if v is None else str(v)) for v in (row or [])]
+            if _looks_like_header(cells):
+                header_idx = ri
+                header = cells
+                break
+        if header_idx is None:
+            # No header detected — fall back: treat each row generically.
+            for ri, row in enumerate(rows):
+                for ci, v in enumerate(row or []):
+                    if v is None or not str(v).strip():
+                        continue
+                    spans.append(Span(
+                        id=f"{ws.title}__r{ri}c{ci}",
+                        text=_clean(str(v)),
+                        context=f"sheet={ws.title}",
+                        source=f"{ws.title}!{openpyxl.utils.get_column_letter(ci+1)}{ri+1}",
+                    ))
+            continue
+
+        # Data rows come after the header. Column A is the metric label.
+        for ri in range(header_idx + 1, len(rows)):
+            raw_row = rows[ri] or []
+            row = [("" if v is None else str(v)) for v in raw_row]
+            if not any(c.strip() for c in row):
+                continue
+            metric_label = _clean(row[0]) if row else ""
+            for ci, val in enumerate(row):
+                if not val.strip():
+                    continue
+                col_name = _clean(header[ci]) if ci < len(header) else ""
+                # Detect percent-formatted cells (e.g. number_format "0.00%").
+                # A raw 0.4087 in such a cell displays as 40.87%; render it as
+                # a percentage so the value carries its true magnitude.
+                display = val
+                is_percent = False
+                if 0 < ci and ci < len(raw_row):
+                    cell_obj = ws.cell(row=ri + 1, column=ci + 1)
+                    nf = (cell_obj.number_format or "")
+                    if "%" in nf:
+                        try:
+                            display = f"{float(val) * 100:g}"
+                            is_percent = True
+                        except ValueError:
+                            pass
+                parts = [f"sheet={ws.title}"]
+                if metric_label:
+                    parts.append(f"metric={metric_label}")
+                if col_name:
+                    parts.append(f"period={col_name}")
+                if hint and not is_percent:
+                    parts.append(hint)  # "$ in thousands" doesn't apply to a %
+                if is_percent:
+                    parts.append("unit=percent")
+                ctx = " ".join(parts)
+                cell_ref = f"{ws.title}!{openpyxl.utils.get_column_letter(ci+1)}{ri+1}"
+                # Rich text: include the metric + period so retrieval & the
+                # extractor both see the figure in full context.
+                rich = display
+                if metric_label and ci > 0:
+                    rich = f"{metric_label} ({col_name}): {display}"
+                spans.append(Span(
+                    id=f"{ws.title}__{openpyxl.utils.get_column_letter(ci+1)}{ri+1}",
+                    text=_clean(rich),
+                    context=ctx,
+                    source=cell_ref,
+                ))
+    return spans
+
+
+def ingest_csv(path: str) -> List[Span]:
+    import csv
+
+    spans: List[Span] = []
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = list(csv.reader(f))
+    if not reader:
+        return spans
+    header = reader[0]
+    for ri, row in enumerate(reader[1:], start=2):
+        for ci, val in enumerate(row):
+            if not val.strip():
+                continue
+            col_name = header[ci] if ci < len(header) else f"col{ci}"
+            spans.append(Span(
+                id=f"csv__r{ri}c{ci}",
+                text=_clean(val),
+                context=f"column={_clean(col_name)}",
+                source=f"row={ri} col={_clean(col_name)}",
+            ))
+    return spans
+
+
+def ingest_pdf(path: str) -> List[Span]:
+    """Extract tables cell-by-cell with pdfplumber, keeping page + table coords."""
+    import pdfplumber
+
+    spans: List[Span] = []
+    with pdfplumber.open(path) as pdf:
+        for page_no, page in enumerate(pdf.pages, start=1):
+            tables = page.extract_tables() or []
+            for ti, table in enumerate(tables, start=1):
+                header: List[str] = []
+                # Footnote / scale hints from the page text (cheap heuristic).
+                page_text = page.extract_text() or ""
+                scale_hint = _detect_scale(page_text)
+                hint_ctx = ""
+                for word, sc in _SCALE_HINTS.items():
+                    if sc == scale_hint and re.search(rf"\bin\s+{word}\b", page_text.lower()):
+                        hint_ctx = f"$ in {word}"
+                        break
+
+                for ri, row in enumerate(table):
+                    cells = [("" if c is None else str(c)) for c in (row or [])]
+                    if ri == 0 or not header:
+                        if any(c.strip() for c in cells):
+                            header = cells
+                            continue
+                    for ci, val in enumerate(cells):
+                        if not val.strip():
+                            continue
+                        col_name = header[ci] if ci < len(header) else f"col{ci}"
+                        ctx_parts = [f"page={page_no}", f"col={_clean(col_name)}"]
+                        if hint_ctx:
+                            ctx_parts.append(hint_ctx)
+                        spans.append(Span(
+                            id=f"p{page_no}_t{ti}_r{ri}_c{ci}",
+                            text=_clean(val),
+                            context=" ".join(ctx_parts),
+                            source=f"page={page_no} table={ti} row={ri} col={_clean(col_name)}",
+                        ))
+            # Also keep plain text lines as spans (covers prose like footnotes).
+            text = page.extract_text() or ""
+            for li, line in enumerate(text.splitlines(), start=1):
+                line = _clean(line)
+                if not line:
+                    continue
+                # Avoid duplicating pure-table numbers already captured above;
+                # keep lines that look like sentences/notes.
+                if len(line.split()) >= 4 and not re.fullmatch(r"[\d,$\s.\-()%]+", line):
+                    spans.append(Span(
+                        id=f"p{page_no}_l{li}",
+                        text=line,
+                        context=f"page={page_no} text",
+                        source=f"page={page_no} line={li}",
+                    ))
+    return spans
+
+
+# Allowed document roots (resolved at import). A doc_path must resolve to a
+# real path inside one of these, after symlink/`..` normalization, or it is
+# rejected. Override via the DOCS_ROOTS env var (os.pathsep-separated).
+_DEFAULT_ROOTS = [
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "sample_data"),
+]
+if "VERCEL" in os.environ:
+    _DEFAULT_ROOTS.append("/tmp")
+
+DOCS_ROOTS = []
+for _r in os.environ.get("DOCS_ROOTS", "").split(os.pathsep):
+    _r = _r.strip()
+    if _r:
+        DOCS_ROOTS.append(os.path.abspath(_r))
+if not DOCS_ROOTS:
+    DOCS_ROOTS = _DEFAULT_ROOTS
+
+_ALLOWED_EXTS = {".xlsx", ".xlsm", ".csv", ".pdf"}
+
+
+class UnsafePathError(ValueError):
+    """Raised when doc_path escapes the allowed roots or extensions."""
+
+
+def is_safe_path(path: str) -> bool:
+    """True if `path` resolves inside an allowed root AND has an allowed ext.
+
+    This is the root-confinement guard that closes the local-file-read vector:
+    without it, a caller could point doc_path at any readable .csv/.pdf/.xlsx
+    on disk (e.g. a secrets file renamed) and have its contents embedded into
+    the LLM prompt via /baseline.
+    """
+    if not path or not isinstance(path, str):
+        return False
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in _ALLOWED_EXTS:
+        return False
+    # os.path.realpath collapses '..', resolves symlinks -> canonical absolute.
+    real = os.path.realpath(path)
+    for root in DOCS_ROOTS:
+        root_real = os.path.realpath(root)
+        try:
+            common = os.path.commonpath([root_real, real])
+        except ValueError:
+            continue  # different drives on Windows
+        if common == root_real:
+            return True
+    return False
+
+
+def resolve_doc_path(path: str) -> str:
+    """Validate + canonicalize a user-supplied doc_path, or raise."""
+    if not is_safe_path(path):
+        raise UnsafePathError(
+            f"doc_path not allowed (must be under an allowed root and end in "
+            f"{sorted(_ALLOWED_EXTS)}): {path!r}"
+        )
+    real = os.path.realpath(path)
+    if not os.path.exists(real):
+        raise FileNotFoundError(path)
+    return real
+
+
+def ingest(path: str) -> List[Span]:
+    """Dispatch on extension. Raises ValueError on unsupported types."""
+    path = resolve_doc_path(path)  # confine to allowed roots/extensions
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".xlsx", ".xlsm"):
+        return ingest_xlsx(path)
+    if ext == ".csv":
+        return ingest_csv(path)
+    if ext == ".pdf":
+        return ingest_pdf(path)
+    raise ValueError(f"unsupported file type: {ext}")
+
+
+# --------------------------------------------------------------------------- #
+#  Retrieval                                                                   #
+# --------------------------------------------------------------------------- #
+_STOP = set("a an the of for to in on at and or is are was were be been being "
+            "this that these those it its as by with from per vs versus what "
+            "how many much did does do company's company".split())
+
+
+def _tokens(text: str) -> set:
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in _STOP and len(w) > 1}
+
+
+def retrieve(question: str, spans: List[Span], k: int = 15) -> List[Span]:
+    """Rank spans by keyword overlap with the question; return top k.
+
+    Boosts spans that contain a digit (financial QA is almost always about
+    numbers) and spans whose scale-hint context matches a magnitude word in
+    the question (e.g. "in millions").
+    """
+    qtoks = _tokens(question)
+    if not qtoks:
+        return spans[:k]
+
+    scored = []
+    for sp in spans:
+        stoks = _tokens(sp.text) | _tokens(sp.context)
+        overlap = len(qtoks & stoks)
+        score = overlap
+        if re.search(r"\d", sp.text):
+            score += 0.5
+        # Magnitude-word boost: if the question mentions a magnitude and the
+        # span's context carries the matching scale hint, prefer it.
+        for word in _SCALE_HINTS:
+            if word in question.lower() and word in sp.context.lower():
+                score += 1.0
+        if score > 0:
+            scored.append((score, sp))
+
+    scored.sort(key=lambda t: t[0], reverse=True)
+    return [sp for _, sp in scored[:k]] if scored else spans[:k]

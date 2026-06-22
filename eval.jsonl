@@ -1,0 +1,10 @@
+{"q": "What was ACME's total revenue for FY2024 in actual dollars?", "doc": "sample_data/acme_financials.xlsx", "gold": 4820000000, "trap": false}
+{"q": "What was ACME's FY2024 gross margin as a percentage?", "doc": "sample_data/acme_financials.xlsx", "gold": 40.87, "trap": false}
+{"q": "What was ACME's net income for FY2024 in actual dollars?", "doc": "sample_data/acme_financials.xlsx", "gold": 520000000, "trap": false}
+{"q": "What was ACME's cash and cash equivalents at year-end FY2024 in actual dollars?", "doc": "sample_data/acme_financials.xlsx", "gold": 1350000000, "trap": false}
+{"q": "What was ACME's FY2024 diluted EPS?", "doc": "sample_data/acme_financials.xlsx", "gold": 1.24, "trap": false}
+{"q": "What was ACME's year-over-year revenue growth from FY2023 to FY2024 as a percentage?", "doc": "sample_data/acme_financials.xlsx", "gold": 6.8736, "trap": false}
+{"q": "What was ACME's total revenue for Q4-2024?", "doc": "sample_data/acme_financials.xlsx", "gold": 1240000000, "trap": true, "trap_type": "period", "note": "Q4 column sits next to FY columns; baseline may report a quarterly number for a full-year question or vice versa"}
+{"q": "What was ACME consolidated net income for FY2024 (not the Cloud Segment)?", "doc": "sample_data/acme_financials.xlsx", "gold": 520000000, "trap": true, "trap_type": "entity", "note": "Cloud Segment net income (215M) sits directly below consolidated (520M)"}
+{"q": "What is ACME's FY2024 total revenue plus cash on hand at year-end FY2024?", "doc": "sample_data/acme_financials.xlsx", "gold": null, "trap": true, "trap_type": "flow_vs_stock", "note": "Adding a period flow to a point-in-time balance is meaningless — Guard must reject"}
+{"q": "What was ACME's total revenue for FY2024 as reported under the 'in thousands' footnote?", "doc": "sample_data/acme_financials.xlsx", "gold": 4820000, "trap": true, "trap_type": "scale", "note": "As-printed value is 4,820,000 (already in thousands); baseline may report raw 1240-style or fail to normalize"}

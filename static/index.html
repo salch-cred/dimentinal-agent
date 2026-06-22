@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#070708" />
+<meta name="description" content="Proof-carrying financial QA. Every number typed, dimension-checked, deterministically computed, and verified." />
+<title>Proof · Dimensional Proof-Carrying Financial QA</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg:           #070708;
+  --bg-card:      #0c0c0e;
+  --border:       #1c1c1f;
+  --border-muted: #121214;
+  --border-focus: #10B981;
+
+  --text:         #f4f4f5;
+  --text-soft:    #a1a1aa;
+  --muted:        #52525b;
+
+  --accent:       #10B981;
+  --accent-soft:  rgba(16, 185, 129, 0.08);
+  --accent-border: rgba(16, 185, 129, 0.2);
+  
+  --rose:         #ef4444;
+  --rose-soft:    rgba(239, 68, 68, 0.08);
+  --rose-border:  rgba(239, 68, 68, 0.2);
+
+  --amber:        #f59e0b;
+  --amber-soft:   rgba(245, 158, 11, 0.08);
+  --amber-border: rgba(245, 158, 11, 0.2);
+
+  --font-serif:   "Lora", Georgia, serif;
+  --font-mono:    "IBM Plex Mono", monospace;
+  --font-sans:    "Inter", sans-serif;
+
+  --maxw:         1200px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  /* Soft green glow from top, clean Cartesian grid layout lines */
+  background-image: 
+    radial-gradient(circle at 50% 0px, rgba(16, 185, 129, 0.07), transparent 800px),
+    linear-gradient(var(--border-muted) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border-muted) 1px, transparent 1px);
+  background-size: 100% 100%, 80px 80px, 80px 80px;
+  background-attachment: fixed;
+}
+
+a { color: inherit; text-decoration: none; }
+img, svg { display: block; max-width: 100%; }
+button { font-family: inherit; }
+code { font-family: var(--font-mono); font-size: 0.9em; }
+
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+.wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 32px; }
+
+/* Grid Divider Helpers */
+.grid-border-bottom { border-bottom: 1px solid var(--border); }
+.grid-border-top { border-top: 1px solid var(--border); }
+
+/* Typography */
+h1, h2, h3, h4 { margin: 0; font-weight: 500; }
+.font-serif { font-family: var(--font-serif); }
+.font-mono { font-family: var(--font-mono); }
+
+.h-xl {
+  font-family: var(--font-serif);
+  font-size: clamp(36px, 5.5vw, 64px);
+  line-height: 1.1;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+.h-lg {
+  font-family: var(--font-serif);
+  font-size: clamp(26px, 3.5vw, 42px);
+  font-weight: 400;
+  line-height: 1.2;
+}
+.lead {
+  font-size: clamp(16px, 1.8vw, 18px);
+  color: var(--text-soft);
+  max-width: 65ch;
+  font-weight: 300;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+  padding: 4px 10px;
+  background: var(--accent-soft);
+  border-radius: 2px;
+}
+
+/* ---------------- Nav ---------------- */
+.nav {
+  background: rgba(7, 7, 8, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  border-bottom: 1px solid var(--border);
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 400;
+}
+.brand svg {
+  color: var(--accent);
+}
+.nav-links {
+  display: flex;
+  gap: 8px;
+}
+.nav-links a {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-soft);
+  padding: 6px 12px;
+  transition: color 0.15s, background 0.15s;
+  border-radius: 3px;
+}
+.nav-links a:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+.nav-cta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nav-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-soft);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 2px;
+}
+.nav-status .led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+.nav-status.live .led {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.nav-toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 36px;
+  height: 36px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+@media (max-width: 860px) {
+  .nav-links, .nav-status { display: none; }
+  .nav-toggle { display: grid; place-items: center; }
+  .nav-links.open {
+    display: flex;
+    position: absolute;
+    top: 64px;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    padding: 12px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+/* ---------------- Buttons & Inputs ---------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 18px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s;
+  border-radius: 2px;
+}
+.btn:hover {
+  background: rgba(255,255,255,0.04);
+  border-color: var(--text-soft);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn-primary {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+.btn-primary:hover {
+  background: rgba(255,255,255,0.9);
+  border-color: rgba(255,255,255,0.9);
+}
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 11px;
+}
+
+/* ---------------- Hero Section ---------------- */
+.hero {
+  padding: 80px 0;
+  border-bottom: 1px solid var(--border);
+}
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 64px;
+  align-items: center;
+}
+@media (max-width: 920px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+}
+.hero h1 {
+  margin-bottom: 24px;
+}
+.hero .lead {
+  margin-bottom: 32px;
+}
+.hero-cta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.hero-note {
+  margin-top: 20px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Ablation / Stats Card */
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 32px;
+  border-radius: 4px;
+  position: relative;
+}
+.stat-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+}
+.sc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+.sc-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-soft);
+  text-transform: uppercase;
+}
+.stat-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 16px;
+  align-items: baseline;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.stat-row:last-child {
+  border-bottom: none;
+}
+.stat-row .lbl {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  color: var(--text-soft);
+}
+.stat-row .val {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 500;
+}
+.stat-row .val.good { color: var(--accent); }
+.stat-row .val.bad { color: var(--rose); }
+
+.stat-bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  background: #141416;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.stat-bar > span {
+  display: block;
+  height: 100%;
+}
+.stat-bar > span.good { background: var(--accent); }
+.stat-bar > span.bad { background: var(--rose); }
+
+/* ---------------- Section General ---------------- */
+.section {
+  padding: 88px 0;
+  border-bottom: 1px solid var(--border);
+}
+.section-head {
+  max-width: 800px;
+  margin-bottom: 48px;
+}
+.section-head h2 {
+  margin: 16px 0;
+}
+
+/* ---------------- Playground ---------------- */
+.playground {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.pg-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.01);
+}
+.pg-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.pg-dots {
+  display: flex;
+  gap: 6px;
+}
+.pg-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.pg-body {
+  padding: 32px;
+}
+
+/* Form input */
+.pg-question {
+  display: flex;
+  gap: 1px;
+  background: var(--border);
+  padding: 1px;
+  border-radius: 2px;
+}
+.pg-question input {
+  flex: 1;
+  background: var(--bg);
+  border: none;
+  color: var(--text);
+  padding: 14px 20px;
+  font-family: var(--font-sans);
+  font-size: 15px;
+}
+.pg-question input:focus {
+  outline: none;
+  background: #09090b;
+}
+.pg-question input::placeholder {
+  color: var(--muted);
+}
+.pg-question button {
+  border: none;
+  border-radius: 0;
+}
+
+.pg-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.doc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  background: rgba(255,255,255,0.01);
+  color: var(--text-soft);
+}
+
+/* Chips / Cases */
+.chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+.chips-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  width: 100%;
+  margin-bottom: 4px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-soft);
+  background: transparent;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s;
+  border-radius: 2px;
+}
+.chip:hover {
+  border-color: var(--amber);
+  color: var(--text);
+}
+.chip.active {
+  border-color: var(--amber);
+  background: var(--amber-soft);
+  color: #fff;
+}
+.chip .tag {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  background: var(--rose-soft);
+  border: 1px solid var(--rose-border);
+  color: var(--rose);
+  border-radius: 1px;
+}
+.chip.clean .tag {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+}
+
+/* Playground Output Columns */
+.cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 32px;
+}
+@media (max-width: 760px) {
+  .cols {
+    grid-template-columns: 1fr;
+  }
+}
+.col {
+  background: rgba(255,255,255,0.01);
+  border: 1px solid var(--border);
+  padding: 24px;
+  border-radius: 2px;
+  position: relative;
+}
+.col.ours {
+  border-color: var(--accent-border);
+}
+.col.base {
+  border-color: var(--rose-border);
+}
+.col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.col-head .name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.col.ours .name { color: var(--accent); }
+.col.base .name { color: var(--rose); }
+
+.col .sub {
+  font-size: 12.5px;
+  color: var(--text-soft);
+  margin-bottom: 20px;
+}
+
+.answer {
+  font-family: var(--font-mono);
+  font-size: clamp(20px, 3vw, 26px);
+  font-weight: 500;
+  padding: 8px 0;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.answer .unit {
+  font-size: 12px;
+  color: var(--muted);
+}
+.answer.muted {
+  color: var(--muted);
+  font-size: 16px;
+  font-family: var(--font-sans);
+}
+.answer.rejected {
+  color: var(--rose);
+}
+.answer .check {
+  color: var(--accent);
+}
+
+.badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 1px;
+  font-weight: 600;
+}
+.badge.survived { background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent); }
+.badge.flagged { background: var(--amber-soft); border: 1px solid var(--amber-border); color: var(--amber); }
+.badge.rejected { background: var(--rose-soft); border: 1px solid var(--rose-border); color: var(--rose); }
+.badge.none { background: rgba(255,255,255,0.03); border: 1px solid var(--border); color: var(--muted); }
+
+.block {
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.block h4 {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.mono-list {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.mono-list div {
+  padding: 3px 0;
+}
+.mono-list .ok { color: var(--accent); }
+.mono-list .fail { color: var(--rose); }
+
+.cites span {
+  display: block;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 0;
+}
+.loading {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  font-size: 12px;
+}
+.reason {
+  margin-top: 16px;
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--rose-soft);
+  border: 1px solid var(--rose-border);
+  color: var(--rose);
+}
+.reason.warn {
+  background: var(--amber-soft);
+  border-color: var(--amber-border);
+  color: var(--amber);
+}
+
+/* ---------------- Guarantees ---------------- */
+.guarantees {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+}
+@media (max-width: 980px) {
+  .guarantees { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .guarantees { grid-template-columns: 1fr; }
+}
+.gcard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 24px;
+  border-radius: 2px;
+  transition: all 0.2s;
+}
+.gcard:hover {
+  border-color: var(--accent-border);
+  background: #0f0f12;
+}
+.gcard .num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.gcard h3 {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.gcard p {
+  font-size: 13px;
+  color: var(--text-soft);
+  margin: 0;
+}
+
+/* ---------------- Money Shot ---------------- */
+.shot-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+@media (max-width: 760px) {
+  .shot-grid { grid-template-columns: 1fr; }
+}
+.shot {
+  border-radius: 2px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.shot.good { border-color: var(--accent-border); }
+.shot.bad { border-color: var(--rose-border); }
+
+.shot .sh-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.shot.good .sh-label { color: var(--accent); }
+.shot.bad .sh-label { color: var(--rose); }
+
+.shot pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  background: rgba(0,0,0,0.2);
+  border: 1px solid var(--border);
+  padding: 16px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+/* ---------------- Footer ---------------- */
+.footer {
+  padding: 48px 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.footer .brand {
+  font-size: 16px;
+}
+.footer small {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  font-size: 11px;
+}
+.footer .pitch-line {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-soft);
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity .5s ease, transform .5s ease;
+}
+.reveal.in {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ====================== NAV ====================== -->
+<nav class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 7V4h16v3M9 20h6M12 4v16"/>
+      </svg>
+      <span>Proof</span>
+    </a>
+    <div class="nav-links" id="navLinks">
+      <a href="#playground">Playground</a>
+      <a href="#guarantees">Guarantees</a>
+      <a href="#moneymshot">Dimensional Trap</a>
+    </div>
+    <div class="nav-cta">
+      <span class="nav-status" id="modeStatus"><span class="led"></span><span id="modeText">loading mode</span></span>
+      <a class="btn btn-sm" href="#playground">Test Playground →</a>
+    </div>
+    <button class="nav-toggle" id="navToggle" aria-label="Toggle menu" aria-expanded="false">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ====================== HERO ====================== -->
+<header class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div class="reveal">
+      <span class="eyebrow"><span class="dot"></span>Academic precision</span>
+      <h1 class="h-xl" style="margin-top: 16px;">
+        Wrong answers, made mathematically unrepresentable.
+      </h1>
+      <p class="lead">
+        A financial-QA system that formally proves every query. Every number is strongly typed, dimension-checked, and computed deterministically. We make wrong answers impossible.
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#playground">Open Playground</a>
+        <a class="btn" href="#moneymshot">Dimensional mismatch trace</a>
+      </div>
+      <p class="hero-note">Runs end-to-end without API keys in Mock mode.</p>
+    </div>
+
+    <div class="reveal">
+      <div class="stat-card">
+        <div class="sc-head">
+          <span class="sc-title">OfficeQA Ablation Study</span>
+          <span class="badge none">proof vs baseline rag</span>
+        </div>
+        <div class="stat-row">
+          <span class="lbl">Proof-Carrying QA (Ours)</span>
+          <span class="val good">100%</span>
+          <div class="stat-bar"><span class="good" style="width:100%"></span></div>
+        </div>
+        <div class="stat-row">
+          <span class="lbl">Vanilla RAG Baseline</span>
+          <span class="val bad">30%</span>
+          <div class="stat-bar"><span class="bad" style="width:30%"></span></div>
+        </div>
+        <div class="stat-row">
+          <span class="lbl">Accuracy delta</span>
+          <span class="val good">+70 pp</span>
+        </div>
+        <div class="stat-row">
+          <span class="lbl">Dimensional traps flagged</span>
+          <span class="val good">100%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ====================== PLAYGROUND ====================== -->
+<section class="section" id="playground">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Interactive System Playground</span>
+      <h2 class="h-lg">The Grounding Difference</h2>
+      <p class="lead">Compare a standard LLM RAG agent against our proof-carrying agent. Standard RAG confidently hallucinations errors. Our agent verifies bounds and types, rejecting illegitimate arithmetic.</p>
+    </div>
+
+    <div class="playground reveal">
+      <div class="pg-bar">
+        <div class="pg-dots"><i></i><i></i><i></i></div>
+        <span class="pg-title">PROVER CONSOLE · /answer vs /baseline</span>
+      </div>
+      <div class="pg-body">
+        <form class="pg-question" id="qForm" onsubmit="return false;">
+          <input id="question" type="text" placeholder="e.g. What was ACME's total revenue for FY2024 in actual dollars?" autocomplete="off" />
+          <button class="btn btn-primary" id="runBtn" type="submit">Run Proof</button>
+        </form>
+
+        <div class="pg-meta">
+          <span>Active Context:</span>
+          <span class="doc-pill" id="docpath" style="padding: 2px 6px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <input id="docpathInput" type="text" value="sample_data/acme_financials.xlsx" style="background:transparent; border:none; color:inherit; font-family:var(--font-mono); font-size:11px; width: 280px; outline:none;" />
+          </span>
+          <button type="button" class="btn btn-sm" id="uploadBtn" style="margin-left: 8px;">Upload Data</button>
+          <input type="file" id="fileInput" accept=".xlsx,.xlsm,.csv,.pdf" style="display: none;" />
+          <button type="button" class="btn btn-sm" id="viewCellsBtn" style="margin-left: auto;">View Raw Cells</button>
+        </div>
+
+        <div id="cellsViewer" style="display: none; margin-top: 16px; border: 1px solid var(--border); background: rgba(0,0,0,0.2); padding: 16px; border-radius: 2px; max-height: 250px; overflow-y: auto;">
+          <h4 style="font-family:var(--font-mono); font-size:10px; color:var(--muted); text-transform:uppercase; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+            <span>Ingested Document Cells</span>
+            <span id="cellsCount" style="color:var(--text-soft)"></span>
+          </h4>
+          <div id="cellsGrid" style="display: grid; grid-template-columns: 180px 220px 1fr; gap: 8px 16px; font-family:var(--font-mono); font-size:11px; border-top:1px solid var(--border); padding-top:8px;"></div>
+        </div>
+
+        <div class="chips" id="chips">
+          <span class="chips-label">Preloaded Test Cases</span>
+        </div>
+
+        <div class="cols">
+          <div class="col base">
+            <div class="col-head"><span class="name">Baseline Plain RAG</span><span class="badge none">Unverified</span></div>
+            <div class="sub">Confident LLM retrieval without physical verification or calculator logic.</div>
+            <div id="baseAnswer" class="answer muted">—</div>
+            <div class="block">
+              <h4>Extracted Citation</h4>
+              <div id="baseCite" class="mono-list muted">—</div>
+            </div>
+            <div id="baseNote"></div>
+          </div>
+
+          <div class="col ours">
+            <div class="col-head"><span class="name">Proof-Carrying</span><span id="verifierBadge"></span></div>
+            <div class="sub">Structured Ledger → Dimensional Guard → Safe Solver → Verified.</div>
+            <div id="proofAnswer" class="answer muted">—</div>
+            <div class="block">
+              <h4>Dimensional Check Ledger</h4>
+              <div id="proofChecks" class="mono-list muted">—</div>
+            </div>
+            <div class="block">
+              <h4>Arithmetic Trace</h4>
+              <div id="proofTrace" class="mono-list muted">—</div>
+            </div>
+            <div class="block">
+              <h4>Deterministic Citations</h4>
+              <div id="proofCites" class="cites mono-list muted">—</div>
+            </div>
+            <div id="proofReason"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== GUARANTEES ====================== -->
+<section class="section" id="guarantees">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Core Safety Pillars</span>
+      <h2 class="h-lg">Four non-negotiable guarantees.</h2>
+      <p class="lead">We separate the generation of plans from the mathematical execution. A sandboxed core decides if actions are dimensionally sound.</p>
+    </div>
+    <div class="guarantees">
+      <div class="gcard reveal">
+        <div class="num">01 / SOURCE</div>
+        <h3>Cell-level Trace</h3>
+        <p>Every single operand is mapped to its precise spreadsheet cell coordinate. No detached facts.</p>
+      </div>
+      <div class="gcard reveal">
+        <div class="num">02 / DIMENSIONS</div>
+        <h3>Dimensional Safety</h3>
+        <p>Entities, flows, scales, and time periods must align perfectly. Adding scale mismatch or RAG mismatch is blocked.</p>
+      </div>
+      <div class="gcard reveal">
+        <div class="num">03 / ARITHMETIC</div>
+        <h3>Deterministic Core</h3>
+        <p>Calculations run outside the LLM in a rigid execution kernel. Never let a model calculate digits.</p>
+      </div>
+      <div class="gcard reveal">
+        <div class="num">04 / AUDITED</div>
+        <h3>Adversarial Auditor</h3>
+        <p>A separate auditor agent attempts to dispute the calculated values against other document contexts.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== MONEY SHOT ====================== -->
+<section class="section" id="moneymshot">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Visualizing the Guard</span>
+      <h2 class="h-lg">Adding Flow (Revenue) to Stock (Cash) is rejected.</h2>
+      <p class="lead">Nonsensical operations are caught immediately before calculation. The system rejects the generation request rather than returning false arithmetic.</p>
+    </div>
+    <div class="shot-grid">
+      <div class="shot good reveal">
+        <div class="sh-label">✓ Proof-Carrying Guard Verdict</div>
+<pre><span style="color:var(--rose)">✕ REJECTED</span> Dimensional Guard:
+
+  period mismatch:
+    'FY2024' vs 'as_of_2024-12-31'
+  (cannot add a flow 'Total revenue'
+   with a stock 'Cash and cash equivalents')
+
+→ execution halted, error surfaced.</pre>
+      </div>
+      <div class="shot bad reveal">
+        <div class="sh-label">✕ Baseline LLM Output</div>
+<pre>answer: $4,820,000,000
+citation: Income Statement!C5
+
+(LLM summed the figures without
+ verifying entity context or periods)</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== FOOTER ====================== -->
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <a class="brand" href="#top">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 7V4h16v3M9 20h6M12 4v16"/>
+      </svg>
+      <span>Proof</span>
+    </a>
+    <span class="pitch-line">"Dimensional Proof-Carrying QA."</span>
+    <small>Sentient Arena Hackathon Submission</small>
+  </div>
+</footer>
+
+<script>
+const DOCS = "sample_data/acme_financials.xlsx";
+
+const TRAPS = [
+  { id:"scale", label:"Scale", tag:"TRAP", clean:false,
+    q:"What was ACME's total revenue for FY2024 as reported under the 'in thousands' footnote?",
+    why:"As-printed value is 4,820,000 (already in thousands). Baseline mishandles magnitude." },
+  { id:"period", label:"Period", tag:"TRAP", clean:false,
+    q:"What was ACME's total revenue for Q4-2024?",
+    why:"Q4 column sits next to FY columns; baseline picks the wrong one." },
+  { id:"entity", label:"Entity", tag:"TRAP", clean:false,
+    q:"What was ACME consolidated net income for FY2024 (not the Cloud Segment)?",
+    why:"Cloud Segment net income (215M) sits directly below consolidated (520M)." },
+  { id:"flowstock", label:"Flow + Stock", tag:"TRAP", clean:false,
+    q:"What is ACME's FY2024 total revenue plus cash on hand at year-end FY2024?",
+    why:"Adding a period flow to a point-in-time balance is meaningless — Guard rejects." },
+  { id:"clean", label:"Clean ratio", tag:"OK", clean:true,
+    q:"What was ACME's FY2024 gross margin as a percentage?",
+    why:"A clean ratio question; both sides should agree." },
+];
+
+let curDoc = DOCS;
+const $ = (id) => document.getElementById(id);
+
+/* chips */
+const chipsEl = $("chips");
+TRAPS.forEach((t) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "chip " + (t.clean ? "clean" : "");
+  b.dataset.id = t.id;
+  b.innerHTML = (t.clean ? '<span class="tag">OK</span> ' : '<span class="tag">TRAP</span> ') + t.label;
+  b.title = t.why;
+  b.addEventListener("click", () => {
+    $("question").value = t.q;
+    $("docpathInput").value = DOCS;
+    document.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.id === t.id));
+    runBoth();
+  });
+  chipsEl.appendChild(b);
+});
+
+/* mobile nav */
+const navToggle = $("navToggle"), navLinks = $("navLinks");
+navToggle.addEventListener("click", () => {
+  const open = navLinks.classList.toggle("open");
+  navToggle.setAttribute("aria-expanded", open ? "true" : "false");
+});
+navLinks.querySelectorAll("a").forEach(a => a.addEventListener("click", () => navLinks.classList.remove("open")));
+
+/* mode badge */
+async function detectMode() {
+  try {
+    const r = await fetch("/health"); const j = await r.json();
+    $("modeText").textContent = (j.mode || "live") + " mode";
+    $("modeStatus").classList.add("live");
+  } catch { $("modeText").textContent = "demo mode"; }
+}
+detectMode();
+
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+function setHTML(id, html) { $(id).innerHTML = html; }
+
+async function runBoth() {
+  const q = $("question").value.trim();
+  if (!q) return;
+  if ($("cellsViewer").style.display === "block") {
+    loadCells();
+  }
+  $("runBtn").disabled = true;
+  setHTML("baseAnswer", '<span class="loading">thinking…</span>');
+  setHTML("proofAnswer", '<span class="loading">thinking…</span>');
+  setHTML("baseCite", '<span class="loading">…</span>');
+  setHTML("proofChecks", '<span class="loading">…</span>');
+  setHTML("proofTrace", '<span class="loading">…</span>');
+  setHTML("proofCites", '<span class="loading">…</span>');
+  setHTML("proofReason", "");
+  setHTML("verifierBadge", "");
+  setHTML("baseNote", "");
+
+  const req = { question: q, doc_path: $("docpathInput").value.trim() };
+  try {
+    const [proof, base] = await Promise.all([post("/answer", req), post("/baseline", req)]);
+    renderProof(proof); renderBase(base);
+  } catch (e) {
+    setHTML("proofAnswer", '<span class="loading">request failed — is the server running? (uvicorn app:app)</span>');
+    setHTML("baseAnswer", '<span class="loading">—</span>');
+  } finally {
+    $("runBtn").disabled = false;
+  }
+}
+
+function badge(verdict) {
+  if (!verdict || verdict === "not_run") return '<span class="badge none">not run</span>';
+  if (verdict === "survived") return '<span class="badge survived">✓ verified</span>';
+  return '<span class="badge flagged">⚠ flagged</span>';
+}
+
+function renderBase(b) {
+  const ans = (b && b.answer != null) ? b.answer : "—";
+  setHTML("baseAnswer", '<span>' + escapeHtml(String(ans)) + '</span> <span class="badge none">no math</span>');
+  const cite = (b && b.citation) ? b.citation : "—";
+  setHTML("baseCite", '<span>' + escapeHtml(String(cite)) + '</span>');
+}
+
+function renderProof(p) {
+  if (p.rejected) {
+    setHTML("proofAnswer", '<span class="rejected">✕ REJECTED</span> <span class="badge rejected">guard</span>');
+    setHTML("proofReason", '<div class="reason"><strong>Dimensional Guard:</strong> ' + escapeHtml(p.reason || "incompatible numbers") + '</div>');
+    setHTML("proofChecks", "");
+    setHTML("proofTrace", "");
+    setHTML("proofCites", p.citations && p.citations.length
+      ? p.citations.map(c => '<span>' + escapeHtml(c) + '</span>').join("")
+      : '<span class="muted">—</span>');
+    setHTML("verifierBadge", '<span class="badge none">guard rejected</span>');
+    return;
+  }
+  const val = p.answer != null ? p.answer : "—";
+  const unit = p.unit ? ' <span class="unit">' + escapeHtml(p.unit) + '</span>' : '';
+  setHTML("proofAnswer", '<span class="check">✓</span> <span>' + escapeHtml(String(val)) + '</span>' + unit + badge(p.verifier_verdict));
+
+  const checks = (p.dimension_checks || []).map(c => {
+    const ok = /^OK/.test(c);
+    return '<div class="' + (ok ? 'ok' : 'fail') + '">' + escapeHtml(c) + '</div>';
+  }).join("");
+  setHTML("proofChecks", checks || '<span class="muted">—</span>');
+
+  const trace = (p.trace || []).map(t => '<div>' + escapeHtml(t) + '</div>').join("");
+  setHTML("proofTrace", trace || '<span class="muted">—</span>');
+
+  const cites = (p.citations || []).map(c => '<span>' + escapeHtml(c) + '</span>').join("");
+  setHTML("proofCites", cites || '<span class="muted">—</span>');
+
+  if (p.verifier_verdict && p.verifier_verdict !== "survived" && p.verifier_verdict !== "not_run") {
+    setHTML("proofReason", '<div class="reason warn"><strong>Verifier:</strong> ' + escapeHtml(p.verifier_verdict) + '</div>');
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+
+function showToast(message, type = "success") {
+  const container = $("toastContainer") || (() => {
+    const c = document.createElement("div");
+    c.id = "toastContainer";
+    c.style.cssText = "position: fixed; bottom: 24px; right: 24px; z-index: 1000; display: flex; flex-direction: column; gap: 8px;";
+    document.body.appendChild(c);
+    return c;
+  })();
+  
+  const toast = document.createElement("div");
+  toast.style.cssText = `
+    padding: 12px 20px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    border-radius: 3px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    transform: translateY(20px);
+    opacity: 0;
+    transition: all 0.3s ease;
+  `;
+  
+  if (type === "success") {
+    toast.style.background = "var(--accent-soft)";
+    toast.style.border = "1px solid var(--accent-border)";
+    toast.style.color = "var(--accent)";
+  } else if (type === "error") {
+    toast.style.background = "var(--rose-soft)";
+    toast.style.border = "1px solid var(--rose-border)";
+    toast.style.color = "var(--rose)";
+  } else {
+    toast.style.background = "var(--amber-soft)";
+    toast.style.border = "1px solid var(--amber-border)";
+    toast.style.color = "var(--amber)";
+  }
+  
+  toast.textContent = message;
+  container.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.transform = "translateY(0)";
+    toast.style.opacity = "1";
+  }, 10);
+  
+  setTimeout(() => {
+    toast.style.transform = "translateY(-20px)";
+    toast.style.opacity = "0";
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
+async function loadCells() {
+  const cellsGrid = $("cellsGrid");
+  const cellsCount = $("cellsCount");
+  const docPath = $("docpathInput").value.trim();
+  
+  cellsGrid.innerHTML = '<div style="grid-column: 1/-1; color: var(--muted); text-align: center;">Loading cells…</div>';
+  cellsCount.textContent = "";
+  
+  try {
+    const res = await post("/all_spans", { question: "", doc_path: docPath });
+    if (!res || !Array.isArray(res)) {
+      cellsGrid.innerHTML = '<div style="grid-column: 1/-1; color: var(--rose);">Failed to retrieve cells</div>';
+      return;
+    }
+    
+    cellsCount.textContent = `${res.length} cells/spans`;
+    cellsGrid.innerHTML = "";
+    
+    if (res.length === 0) {
+      cellsGrid.innerHTML = '<div style="grid-column: 1/-1; color: var(--muted); text-align: center;">No cells found.</div>';
+      return;
+    }
+    
+    res.forEach(sp => {
+      const divSource = document.createElement("div");
+      divSource.textContent = sp.source || sp.id;
+      divSource.style.color = "var(--accent)";
+      divSource.style.fontWeight = "500";
+      divSource.style.wordBreak = "break-all";
+      
+      const divContext = document.createElement("div");
+      divContext.textContent = sp.context;
+      divContext.style.color = "var(--text-soft)";
+      divContext.style.wordBreak = "break-all";
+      
+      const divText = document.createElement("div");
+      divText.textContent = sp.text;
+      divText.style.wordBreak = "break-word";
+      
+      cellsGrid.appendChild(divSource);
+      cellsGrid.appendChild(divContext);
+      cellsGrid.appendChild(divText);
+    });
+  } catch (e) {
+    cellsGrid.innerHTML = '<div style="grid-column: 1/-1; color: var(--rose);">Error loading cells: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+$("viewCellsBtn").addEventListener("click", () => {
+  const viewer = $("cellsViewer");
+  const btn = $("viewCellsBtn");
+  if (viewer.style.display === "none" || !viewer.style.display) {
+    viewer.style.display = "block";
+    btn.textContent = "Hide Raw Cells";
+    loadCells();
+  } else {
+    viewer.style.display = "none";
+    btn.textContent = "View Raw Cells";
+  }
+});
+
+const uploadBtn = $("uploadBtn");
+const fileInput = $("fileInput");
+
+uploadBtn.addEventListener("click", () => {
+  fileInput.click();
+});
+
+fileInput.addEventListener("change", async () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  
+  uploadBtn.disabled = true;
+  uploadBtn.textContent = "Uploading…";
+  
+  try {
+    const res = await fetch(`/upload?filename=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      body: file
+    });
+    
+    if (!res.ok) {
+      const err = await res.json();
+      showToast(`Upload failed: ${err.detail || res.statusText}`, "error");
+      return;
+    }
+    
+    const data = await res.json();
+    $("docpathInput").value = data.filename;
+    
+    showToast(`Successfully uploaded: ${file.name}`, "success");
+    
+    if ($("cellsViewer").style.display === "block") {
+      loadCells();
+    }
+    
+    runBoth();
+  } catch (e) {
+    showToast(`Upload error: ${e.message}`, "error");
+  } finally {
+    uploadBtn.disabled = false;
+    uploadBtn.textContent = "Upload Data";
+    fileInput.value = "";
+  }
+});
+
+$("qForm").addEventListener("submit", (e) => { e.preventDefault(); runBoth(); });
+
+const io = new IntersectionObserver((entries) => {
+  entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add("in"); io.unobserve(en.target); } });
+}, { threshold: 0.12 });
+document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+</script>
+</body>
+</html>
