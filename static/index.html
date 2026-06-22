@@ -437,6 +437,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 500; }
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--muted);
+  flex-wrap: wrap;
 }
 .doc-pill {
   display: inline-flex;
@@ -446,6 +447,42 @@ h1, h2, h3, h4 { margin: 0; font-weight: 500; }
   padding: 4px 8px;
   background: rgba(255,255,255,0.01);
   color: var(--text-soft);
+}
+.doc-pill input {
+  width: 280px;
+}
+@media (max-width: 600px) {
+  .doc-pill input {
+    width: 160px;
+  }
+}
+.cells-grid {
+  display: grid;
+  grid-template-columns: 180px 220px 1fr;
+  gap: 8px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+@media (max-width: 760px) {
+  .cells-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .cells-grid > div:nth-child(3n+1) {
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+    font-weight: 500;
+  }
+  .cells-grid > div:nth-child(3n+2) {
+    color: var(--muted);
+    font-size: 10px;
+    margin-top: -4px;
+  }
+  .cells-grid > div:nth-child(3n) {
+    margin-bottom: 4px;
+  }
 }
 
 /* Chips / Cases */
@@ -868,7 +905,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 500; }
             <span>Ingested Document Cells</span>
             <span id="cellsCount" style="color:var(--text-soft)"></span>
           </h4>
-          <div id="cellsGrid" style="display: grid; grid-template-columns: 180px 220px 1fr; gap: 8px 16px; font-family:var(--font-mono); font-size:11px; border-top:1px solid var(--border); padding-top:8px;"></div>
+          <div id="cellsGrid" class="cells-grid"></div>
         </div>
 
         <div class="chips" id="chips">
