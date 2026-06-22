@@ -972,6 +972,10 @@ h1, h2, h3, h4 { margin: 0; font-weight: 500; }
             </div>
             <div id="proofReason"></div>
             
+            <button type="button" class="btn btn-sm btn-primary" id="downloadPdfBtn" style="display: none; margin-top: 16px; width: 100%; justify-content: center; gap: 8px;">
+              📄 Download PDF Audit Certificate
+            </button>
+            
             <div id="goalSeekPanel" style="display: none; margin-top: 24px; padding: 16px; border: 1px solid var(--border); background: rgba(255,255,255,0.01); border-radius: 2px;">
               <h4 style="font-family: var(--font-mono); font-size: 10px; color: var(--muted); text-transform: uppercase; margin-top: 0; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
                 <span>Goal Seek Optimizer</span>
@@ -1091,6 +1095,7 @@ const TRAPS = [
 ];
 
 let curDoc = DOCS;
+let lastProofPayload = null;
 const $ = (id) => document.getElementById(id);
 
 /* chips */
@@ -1151,6 +1156,7 @@ async function runBoth() {
   setHTML("proofReason", "");
   setHTML("verifierBadge", "");
   setHTML("baseNote", "");
+  $("downloadPdfBtn").style.display = "none";
 
   const req = { question: q, doc_path: $("docpathInput").value.trim() };
   try {
@@ -1178,7 +1184,14 @@ function renderBase(b) {
 }
 
 function renderProof(p) {
-  if (p.rejected) {
+  lastProofPayload = p;
+  if (p) {
+    $("downloadPdfBtn").style.display = "inline-flex";
+  } else {
+    $("downloadPdfBtn").style.display = "none";
+  }
+
+  if (p && p.rejected) {
     $("goalSeekPanel").style.display = "none";
     setHTML("proofAnswer", '<span class="rejected">✕ REJECTED</span> <span class="badge rejected">guard</span>');
     setHTML("proofReason", '<div class="reason"><strong>Dimensional Guard:</strong> ' + escapeHtml(p.reason || "incompatible numbers") + '</div>');
@@ -1548,6 +1561,348 @@ $("goalSeekForm").addEventListener("submit", async (e) => {
     btn.disabled = false;
     btn.textContent = "Optimize";
   }
+});
+
+$("downloadPdfBtn").addEventListener("click", () => {
+  if (!lastProofPayload) return;
+  const q = $("question").value.trim();
+  const doc = $("docpathInput").value.trim();
+  const p = lastProofPayload;
+  const timestamp = new Date().toLocaleString();
+  const isRejected = p.rejected;
+  const verdictText = isRejected ? "REJECTED" : (p.verifier_verdict === "survived" ? "VERIFIED" : "UNVERIFIED");
+  const verdictClass = isRejected ? "rejected" : (p.verifier_verdict === "survived" ? "verified" : "unverified");
+  const answerVal = isRejected ? "N/A" : (p.answer != null ? p.answer : "—");
+  const unitText = (!isRejected && p.unit) ? p.unit : "";
+  
+  let checksHtml = "";
+  if (isRejected) {
+    checksHtml = `<div class="list-item fail"><strong>Guard Violation:</strong> ${escapeHtml(p.reason || "Incompatible inputs detected.")}</div>`;
+  } else {
+    checksHtml = (p.dimension_checks || []).map(c => {
+      const ok = /^OK/.test(c);
+      return `<div class="list-item ${ok ? 'ok' : 'fail'}">${escapeHtml(c)}</div>`;
+    }).join("");
+  }
+  
+  const traceHtml = (p.trace || []).map(t => `<div class="list-item">${escapeHtml(t)}</div>`).join("");
+  const citesHtml = (p.citations || []).map(c => `<div class="cite-item">${escapeHtml(c)}</div>`).join("");
+  
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Proof Audit Certificate - ${escapeHtml(q.substring(0, 30))}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Lora:wght@400;500;600&display=swap');
+    
+    :root {
+      --primary: ${isRejected ? '#ef4444' : '#10B981'};
+      --primary-soft: ${isRejected ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)'};
+      --primary-border: ${isRejected ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)'};
+    }
+    
+    body {
+      background: #ffffff;
+      color: #18181b;
+      font-family: 'Inter', sans-serif;
+      margin: 40px;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+    
+    .certificate-container {
+      max-width: 800px;
+      margin: 0 auto;
+      border: 1px solid #e4e4e7;
+      padding: 48px;
+      border-radius: 8px;
+      position: relative;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.02);
+    }
+    
+    .certificate-container::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      background: var(--primary);
+      border-top-left-radius: 8px;
+      border-top-right-radius: 8px;
+    }
+    
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 1px solid #e4e4e7;
+      padding-bottom: 24px;
+      margin-bottom: 32px;
+    }
+    
+    .title-group h1 {
+      font-family: 'Lora', serif;
+      font-size: 26px;
+      font-weight: 500;
+      margin: 0 0 6px 0;
+      color: #09090b;
+    }
+    
+    .title-group p {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: #71717a;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 0;
+    }
+    
+    .badge {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      padding: 6px 12px;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      display: inline-block;
+    }
+    
+    .badge.verified {
+      background: #ecfdf5;
+      border-color: #a7f3d0;
+      color: #047857;
+    }
+    
+    .badge.rejected {
+      background: #fef2f2;
+      border-color: #fca5a5;
+      color: #b91c1c;
+    }
+    
+    .badge.unverified {
+      background: #fcf8e3;
+      border-color: #faebcc;
+      color: #8a6d3b;
+    }
+    
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 12px 16px;
+      margin-bottom: 32px;
+      font-size: 13px;
+    }
+    
+    .meta-label {
+      font-family: 'IBM Plex Mono', monospace;
+      color: #71717a;
+      font-weight: 500;
+    }
+    
+    .meta-value {
+      color: #27272a;
+      word-break: break-word;
+    }
+    
+    .section-title {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #71717a;
+      border-bottom: 1px solid #e4e4e7;
+      padding-bottom: 6px;
+      margin-top: 32px;
+      margin-bottom: 16px;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    
+    .result-box {
+      background: var(--primary-soft);
+      border: 1px solid var(--primary-border);
+      border-radius: 6px;
+      padding: 24px;
+      margin-bottom: 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .result-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      color: #52525b;
+      text-transform: uppercase;
+    }
+    
+    .result-value {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 26px;
+      font-weight: 600;
+      color: #09090b;
+    }
+    
+    .result-value .unit {
+      font-size: 14px;
+      color: #71717a;
+      font-weight: 400;
+    }
+    
+    .list-container {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      color: #27272a;
+      background: #fafafa;
+      border: 1px solid #e4e4e7;
+      border-radius: 4px;
+      padding: 16px;
+    }
+    
+    .list-item {
+      padding: 6px 0;
+      border-bottom: 1px dotted #e4e4e7;
+      word-break: break-word;
+    }
+    
+    .list-item:last-child {
+      border-bottom: none;
+    }
+    
+    .list-item.ok {
+      color: #0f766e;
+    }
+    
+    .list-item.fail {
+      color: #be123c;
+    }
+    
+    .cites-container {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    
+    .cite-item {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      color: #0f766e;
+      background: #f0fdf4;
+      border: 1px solid #dcfce7;
+      padding: 8px 12px;
+      border-radius: 4px;
+    }
+    
+    .footer {
+      margin-top: 48px;
+      border-top: 1px solid #e4e4e7;
+      padding-top: 16px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      color: #a1a1aa;
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    .watermark {
+      text-align: center;
+      margin-top: 32px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      color: #d4d4d8;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+    }
+    
+    @media print {
+      body {
+        margin: 0;
+        background: #ffffff;
+      }
+      .certificate-container {
+        border: none;
+        padding: 0;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="certificate-container">
+    <div class="header">
+      <div class="title-group">
+        <h1>Audit Transcript</h1>
+        <p>Dimensional Proof-Carrying Financial QA</p>
+      </div>
+      <div>
+        <span class="badge ${verdictClass}">${verdictText}</span>
+      </div>
+    </div>
+    
+    <div class="meta-grid">
+      <div class="meta-label">Query:</div>
+      <div class="meta-value" style="font-weight: 500;">"${escapeHtml(q)}"</div>
+      
+      <div class="meta-label">Source Document:</div>
+      <div class="meta-value">${escapeHtml(doc)}</div>
+      
+      <div class="meta-label">Timestamp:</div>
+      <div class="meta-value">${timestamp}</div>
+      
+      <div class="meta-label">Prover Node:</div>
+      <div class="meta-value">Antigravity Core Sandbox v1.0.0</div>
+    </div>
+    
+    <div class="section-title">Execution Verdict</div>
+    <div class="result-box">
+      <span class="result-label">Verified Value</span>
+      <span class="result-value">
+        ${isRejected ? '<span style="color:#ef4444">✕ REJECTED</span>' : escapeHtml(answerVal) + (unitText ? ' <span class="unit">' + escapeHtml(unitText) + '</span>' : '')}
+      </span>
+    </div>
+    
+    <div class="section-title">Dimensional Check Ledger</div>
+    <div class="list-container">
+      ${checksHtml || '<div style="color:#71717a">No checks registered.</div>'}
+    </div>
+    
+    ${!isRejected && traceHtml ? `
+      <div class="section-title">Arithmetic Proof Trace</div>
+      <div class="list-container">
+        ${traceHtml}
+      </div>
+    ` : ''}
+    
+    ${citesHtml ? `
+      <div class="section-title">Deterministic Citations</div>
+      <div class="cites-container">
+        ${citesHtml}
+      </div>
+    ` : ''}
+    
+    <div class="footer">
+      <span>Sentient Arena Hackathon Submission</span>
+      <span>Secure Verification Core</span>
+    </div>
+    
+    <div class="watermark">FORMALLY VERIFIED BY DIMENTIONALPROOF ENGINE</div>
+  </div>
+  
+  <script>
+    window.onload = function() {
+      setTimeout(() => {
+        window.print();
+      }, 300);
+    };
+  <\/script>
+</body>
+</html>
+  `;
+  
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
 });
 
 const io = new IntersectionObserver((entries) => {
