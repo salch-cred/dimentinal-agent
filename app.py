@@ -43,6 +43,12 @@ class StressTestRequest(BaseModel):
     doc_path: str = Field(..., max_length=MAX_DOC_PATH_LEN)
 
 
+class GoalSeekRequest(BaseModel):
+    question: str = Field(..., max_length=MAX_QUESTION_LEN)
+    doc_path: str = Field(..., max_length=MAX_DOC_PATH_LEN)
+    target_value: float
+
+
 @app.exception_handler(UnsafePathError)
 async def _unsafe_path_handler(_req, exc: UnsafePathError):
     # 400, not 500 — this is a client error (disallowed path).
@@ -264,6 +270,199 @@ def stress_test(req: StressTestRequest):
         })
         
     return {"results": results}
+
+
+@app.post("/goal_seek")
+def goal_seek(req: GoalSeekRequest):
+    # 1. Reconstruct the plan
+    all_spans = ingest(req.doc_path)
+    spans = retrieve(req.question, all_spans)
+    ledger = extract_ledger(req.question, spans)
+    if not ledger:
+        return JSONResponse(status_code=400, content={"detail": "Could not extract data for Goal Seek"})
+        
+    steps = plan(req.question, ledger)
+    if not steps:
+        return JSONResponse(status_code=400, content={"detail": "Could not plan calculation for Goal Seek"})
+        
+    try:
+        check_plan(steps, ledger)
+        orig_value, trace = execute_plan(steps, ledger)
+    except DimensionError as e:
+        return JSONResponse(status_code=400, content={"detail": f"Dimension error: {str(e)}"})
+        
+    # Get the last step
+    last_step = steps[-1]
+    op = last_step.op
+    operands = last_step.operands
+    target = req.target_value
+    
+    adjustments = []
+    
+    # Get the normalized values of the operands
+    from guard import normalize, _period_sort_key
+    vals = {k: normalize(ledger[k]) for k in operands}
+    
+    if op == "identity":
+        opnd_id = operands[0]
+        tup = ledger[opnd_id]
+        adjustments.append({
+            "operand_id": opnd_id,
+            "metric": tup.metric,
+            "period": tup.period,
+            "source": tup.source_span,
+            "current_value": vals[opnd_id] / tup.scale,
+            "target_value": target / tup.scale,
+            "delta": (target - vals[opnd_id]) / tup.scale,
+            "percent_change": ((target - vals[opnd_id]) / vals[opnd_id] * 100.0) if vals[opnd_id] != 0 else 0.0,
+            "scale": tup.scale,
+            "unit": tup.unit
+        })
+        
+    elif op == "add":
+        total_sum = sum(vals.values())
+        for opnd_id in operands:
+            tup = ledger[opnd_id]
+            others_sum = total_sum - vals[opnd_id]
+            opnd_target = target - others_sum
+            adjustments.append({
+                "operand_id": opnd_id,
+                "metric": tup.metric,
+                "period": tup.period,
+                "source": tup.source_span,
+                "current_value": vals[opnd_id] / tup.scale,
+                "target_value": opnd_target / tup.scale,
+                "delta": (opnd_target - vals[opnd_id]) / tup.scale,
+                "percent_change": ((opnd_target - vals[opnd_id]) / vals[opnd_id] * 100.0) if vals[opnd_id] != 0 else 0.0,
+                "scale": tup.scale,
+                "unit": tup.unit
+            })
+            
+    elif op == "sub":
+        ordered = sorted(
+            [i for i in operands],
+            key=lambda i: _period_sort_key(ledger[i].period),
+        )
+        earliest_id = ordered[0]
+        others_ids = ordered[1:]
+        others_sum = sum(vals[i] for i in others_ids)
+        
+        # Earliest operand option
+        tup = ledger[earliest_id]
+        opnd_target = target + others_sum
+        adjustments.append({
+            "operand_id": earliest_id,
+            "metric": tup.metric,
+            "period": tup.period,
+            "source": tup.source_span,
+            "current_value": vals[earliest_id] / tup.scale,
+            "target_value": opnd_target / tup.scale,
+            "delta": (opnd_target - vals[earliest_id]) / tup.scale,
+            "percent_change": ((opnd_target - vals[earliest_id]) / vals[earliest_id] * 100.0) if vals[earliest_id] != 0 else 0.0,
+            "scale": tup.scale,
+            "unit": tup.unit
+        })
+        
+        # Others options
+        for opnd_id in others_ids:
+            tup = ledger[opnd_id]
+            other_others_sum = others_sum - vals[opnd_id]
+            opnd_target = vals[earliest_id] - target - other_others_sum
+            adjustments.append({
+                "operand_id": opnd_id,
+                "metric": tup.metric,
+                "period": tup.period,
+                "source": tup.source_span,
+                "current_value": vals[opnd_id] / tup.scale,
+                "target_value": opnd_target / tup.scale,
+                "delta": (opnd_target - vals[opnd_id]) / tup.scale,
+                "percent_change": ((opnd_target - vals[opnd_id]) / vals[opnd_id] * 100.0) if vals[opnd_id] != 0 else 0.0,
+                "scale": tup.scale,
+                "unit": tup.unit
+            })
+            
+    elif op in ("div", "ratio"):
+        A_id = operands[0]
+        B_id = operands[1]
+        tup_A = ledger[A_id]
+        tup_B = ledger[B_id]
+        
+        # Option A (adjust numerator)
+        opnd_target_A = target * vals[B_id]
+        adjustments.append({
+            "operand_id": A_id,
+            "metric": tup_A.metric,
+            "period": tup_A.period,
+            "source": tup_A.source_span,
+            "current_value": vals[A_id] / tup_A.scale,
+            "target_value": opnd_target_A / tup_A.scale,
+            "delta": (opnd_target_A - vals[A_id]) / tup_A.scale,
+            "percent_change": ((opnd_target_A - vals[A_id]) / vals[A_id] * 100.0) if vals[A_id] != 0 else 0.0,
+            "scale": tup_A.scale,
+            "unit": tup_A.unit
+        })
+        
+        # Option B (adjust denominator)
+        if target != 0:
+            opnd_target_B = vals[A_id] / target
+            adjustments.append({
+                "operand_id": B_id,
+                "metric": tup_B.metric,
+                "period": tup_B.period,
+                "source": tup_B.source_span,
+                "current_value": vals[B_id] / tup_B.scale,
+                "target_value": opnd_target_B / tup_B.scale,
+                "delta": (opnd_target_B - vals[B_id]) / tup_B.scale,
+                "percent_change": ((opnd_target_B - vals[B_id]) / vals[B_id] * 100.0) if vals[B_id] != 0 else 0.0,
+                "scale": tup_B.scale,
+                "unit": tup_B.unit
+            })
+            
+    elif op == "pct_change":
+        ordered = sorted(
+            [i for i in operands],
+            key=lambda i: _period_sort_key(ledger[i].period),
+        )
+        old_id = ordered[0]
+        new_id = ordered[1]
+        tup_old = ledger[old_id]
+        tup_new = ledger[new_id]
+        
+        old_val = vals[old_id]
+        new_val = vals[new_id]
+        
+        # Adjust new
+        opnd_target_new = old_val * (1.0 + target / 100.0)
+        adjustments.append({
+            "operand_id": new_id,
+            "metric": tup_new.metric,
+            "period": tup_new.period,
+            "source": tup_new.source_span,
+            "current_value": new_val / tup_new.scale,
+            "target_value": opnd_target_new / tup_new.scale,
+            "delta": (opnd_target_new - new_val) / tup_new.scale,
+            "percent_change": ((opnd_target_new - new_val) / new_val * 100.0) if new_val != 0 else 0.0,
+            "scale": tup_new.scale,
+            "unit": tup_new.unit
+        })
+        
+        # Adjust old
+        if target != -100.0:
+            opnd_target_old = new_val / (1.0 + target / 100.0)
+            adjustments.append({
+                "operand_id": old_id,
+                "metric": tup_old.metric,
+                "period": tup_old.period,
+                "source": tup_old.source_span,
+                "current_value": old_val / tup_old.scale,
+                "target_value": opnd_target_old / tup_old.scale,
+                "delta": (opnd_target_old - old_val) / tup_old.scale,
+                "percent_change": ((opnd_target_old - old_val) / old_val * 100.0) if old_val != 0 else 0.0,
+                "scale": tup_old.scale,
+                "unit": tup_old.unit
+            })
+            
+    return {"op": op, "target_value": target, "adjustments": adjustments}
 
 
 # --------------------------------------------------------------------------- #

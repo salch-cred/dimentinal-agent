@@ -960,6 +960,18 @@ h1, h2, h3, h4 { margin: 0; font-weight: 500; }
               <div id="proofCites" class="cites mono-list muted">—</div>
             </div>
             <div id="proofReason"></div>
+            
+            <div id="goalSeekPanel" style="display: none; margin-top: 24px; padding: 16px; border: 1px solid var(--border); background: rgba(255,255,255,0.01); border-radius: 2px;">
+              <h4 style="font-family: var(--font-mono); font-size: 10px; color: var(--muted); text-transform: uppercase; margin-top: 0; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+                <span>Goal Seek Optimizer</span>
+                <span style="color: var(--accent); font-weight: normal; text-transform: none;">Graph backpropagation</span>
+              </h4>
+              <form id="goalSeekForm" onsubmit="return false;" style="display: flex; gap: 8px; margin-bottom: 12px;">
+                <input id="goalSeekInput" type="text" placeholder="e.g. 45% or 5000000" style="flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; font-family: var(--font-mono); font-size: 12px; outline: none; border-radius: 2px;" autocomplete="off" />
+                <button type="submit" class="btn btn-sm btn-primary" id="goalSeekBtn" style="padding: 6px 12px;">Optimize</button>
+              </form>
+              <div id="goalSeekResults" style="display: flex; flex-direction: column; gap: 8px; font-family: var(--font-mono); font-size: 11px;"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -1156,6 +1168,7 @@ function renderBase(b) {
 
 function renderProof(p) {
   if (p.rejected) {
+    $("goalSeekPanel").style.display = "none";
     setHTML("proofAnswer", '<span class="rejected">✕ REJECTED</span> <span class="badge rejected">guard</span>');
     setHTML("proofReason", '<div class="reason"><strong>Dimensional Guard:</strong> ' + escapeHtml(p.reason || "incompatible numbers") + '</div>');
     setHTML("proofChecks", "");
@@ -1184,7 +1197,14 @@ function renderProof(p) {
 
   if (p.verifier_verdict && p.verifier_verdict !== "survived" && p.verifier_verdict !== "not_run") {
     setHTML("proofReason", '<div class="reason warn"><strong>Verifier:</strong> ' + escapeHtml(p.verifier_verdict) + '</div>');
+  } else {
+    setHTML("proofReason", "");
   }
+
+  // Display and reset the Goal Seek panel
+  $("goalSeekPanel").style.display = "block";
+  $("goalSeekInput").value = "";
+  $("goalSeekResults").innerHTML = '<div style="color: var(--muted); font-size: 10px;">Enter a target value above to trace constraints.</div>';
 }
 
 function escapeHtml(s) {
@@ -1433,6 +1453,91 @@ $("runStressTestBtn").addEventListener("click", async () => {
 });
 
 $("qForm").addEventListener("submit", (e) => { e.preventDefault(); runBoth(); });
+
+$("goalSeekForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = $("goalSeekInput");
+  const btn = $("goalSeekBtn");
+  const resultsDiv = $("goalSeekResults");
+  
+  const rawVal = input.value.trim();
+  if (!rawVal) return;
+  
+  const parsedVal = parseFloat(rawVal.replace(/[$,%]/g, ""));
+  if (isNaN(parsedVal)) {
+    showToast("Invalid number entered", "error");
+    return;
+  }
+  
+  btn.disabled = true;
+  btn.textContent = "Solving…";
+  resultsDiv.innerHTML = '<div style="color: var(--muted); font-size: 10px;">Propagating constraints backward...</div>';
+  
+  try {
+    const q = $("question").value.trim();
+    const doc = $("docpathInput").value.trim();
+    const res = await post("/goal_seek", {
+      question: q,
+      doc_path: doc,
+      target_value: parsedVal
+    });
+    
+    resultsDiv.innerHTML = "";
+    if (!res || !res.adjustments || !Array.isArray(res.adjustments)) {
+      resultsDiv.innerHTML = '<div style="color: var(--rose);">Solver failed to resolve constraints.</div>';
+      return;
+    }
+    
+    if (res.adjustments.length === 0) {
+      resultsDiv.innerHTML = '<div style="color: var(--muted);">No adjustments required.</div>';
+      return;
+    }
+    
+    res.adjustments.forEach(adj => {
+      const item = document.createElement("div");
+      item.style.cssText = `
+        border-top: 1px solid var(--border-muted);
+        padding-top: 8px;
+        margin-top: 6px;
+      `;
+      
+      const sign = adj.delta >= 0 ? "+" : "";
+      const percentText = adj.percent_change !== 0 
+        ? ` (${sign}${adj.percent_change.toFixed(2)}%)` 
+        : "";
+      const deltaColor = adj.delta >= 0 ? "var(--accent)" : "var(--rose)";
+      
+      const unitPrefix = adj.unit === "USD" ? "$" : "";
+      const unitSuffix = adj.unit === "percent" ? "%" : (adj.unit === "shares" ? " shares" : "");
+      
+      const formatVal = (v) => {
+        return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+      };
+      
+      item.innerHTML = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px; flex-wrap: wrap;">
+          <span style="color: var(--text); font-weight: 500;">${escapeHtml(adj.metric)} (${escapeHtml(adj.period)})</span>
+          <span style="color: var(--accent); font-size: 10px;">${escapeHtml(adj.source)}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; color: var(--text-soft); font-size: 11px;">
+          <span>Current: ${unitPrefix}${formatVal(adj.current_value)}${unitSuffix}</span>
+          <span>Target: <strong style="color: var(--text);">${unitPrefix}${formatVal(adj.target_value)}${unitSuffix}</strong></span>
+        </div>
+        <div style="text-align: right; font-size: 10px; color: ${deltaColor}; font-weight: 500; margin-top: 2px;">
+          Change: ${sign}${formatVal(adj.delta)}${unitSuffix}${percentText}
+        </div>
+      `;
+      resultsDiv.appendChild(item);
+    });
+    showToast("Goal Seek optimized!", "success");
+  } catch (err) {
+    resultsDiv.innerHTML = '<div style="color: var(--rose);">Error solving target: ' + escapeHtml(err.message) + '</div>';
+    showToast("Optimization failed", "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Optimize";
+  }
+});
 
 const io = new IntersectionObserver((entries) => {
   entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add("in"); io.unobserve(en.target); } });
