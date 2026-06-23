@@ -352,7 +352,7 @@ for _r in os.environ.get("DOCS_ROOTS", "").split(os.pathsep):
 if not DOCS_ROOTS:
     DOCS_ROOTS = _DEFAULT_ROOTS
 
-_ALLOWED_EXTS = {".xlsx", ".xlsm", ".csv", ".pdf"}
+_ALLOWED_EXTS = {".xlsx", ".xlsm", ".csv", ".pdf", ".txt", ".json"}
 
 
 class UnsafePathError(ValueError):
@@ -360,26 +360,19 @@ class UnsafePathError(ValueError):
 
 
 def is_safe_path(path: str) -> bool:
-    """True if `path` resolves inside an allowed root AND has an allowed ext.
-
-    This is the root-confinement guard that closes the local-file-read vector:
-    without it, a caller could point doc_path at any readable .csv/.pdf/.xlsx
-    on disk (e.g. a secrets file renamed) and have its contents embedded into
-    the LLM prompt via /baseline.
-    """
+    """True if `path` resolves inside an allowed root AND has an allowed ext."""
     if not path or not isinstance(path, str):
         return False
     ext = os.path.splitext(path)[1].lower()
     if ext not in _ALLOWED_EXTS:
         return False
-    # os.path.realpath collapses '..', resolves symlinks -> canonical absolute.
     real = os.path.realpath(path)
     for root in DOCS_ROOTS:
         root_real = os.path.realpath(root)
         try:
             common = os.path.commonpath([root_real, real])
         except ValueError:
-            continue  # different drives on Windows
+            continue
         if common == root_real:
             return True
     return False
@@ -398,6 +391,51 @@ def resolve_doc_path(path: str) -> str:
     return real
 
 
+def ingest_txt(path: str) -> List[Span]:
+    spans: List[Span] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for li, line in enumerate(f, start=1):
+            line = _clean(line)
+            if not line:
+                continue
+            spans.append(Span(
+                id=f"txt__l{li}",
+                text=line,
+                context=f"file={os.path.basename(path)}",
+                source=f"file={os.path.basename(path)} line={li}",
+            ))
+    return spans
+
+
+def ingest_json(path: str) -> List[Span]:
+    import json
+    spans: List[Span] = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        def extract_strings(obj, context=""):
+            if isinstance(obj, str):
+                val = _clean(obj)
+                if val:
+                    spans.append(Span(
+                        id=f"json__s{len(spans)}",
+                        text=val,
+                        context=context.strip(),
+                        source=f"file={os.path.basename(path)}"
+                    ))
+            elif isinstance(obj, list):
+                for i, item in enumerate(obj):
+                    extract_strings(item, f"{context} list[{i}]")
+            elif isinstance(obj, dict):
+                for k, v in obj.items():
+                    extract_strings(v, f"{context} {k}")
+        extract_strings(data, f"file={os.path.basename(path)}")
+    except Exception:
+        pass
+    return spans
+
+
 def ingest(path: str) -> List[Span]:
     """Dispatch on extension. Raises ValueError on unsupported types."""
     path = resolve_doc_path(path)  # confine to allowed roots/extensions
@@ -408,6 +446,10 @@ def ingest(path: str) -> List[Span]:
         return ingest_csv(path)
     if ext == ".pdf":
         return ingest_pdf(path)
+    if ext == ".txt":
+        return ingest_txt(path)
+    if ext == ".json":
+        return ingest_json(path)
     raise ValueError(f"unsupported file type: {ext}")
 
 
