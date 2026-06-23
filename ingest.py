@@ -334,6 +334,12 @@ def ingest_pdf(path: str) -> List[Span]:
 # rejected. Override via the DOCS_ROOTS env var (os.pathsep-separated).
 _DEFAULT_ROOTS = [
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "sample_data"),
+    "/data",
+    "./data",
+    "/workspace/data",
+    "/workspace",
+    "./corpus",
+    "/corpus",
 ]
 if "VERCEL" in os.environ:
     _DEFAULT_ROOTS.append("/tmp")
