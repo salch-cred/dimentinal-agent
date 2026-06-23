@@ -37,7 +37,7 @@ Financial QA fails not because the model lacks knowledge, but because it combine
 Ours:    ✕ REJECTED — Dimensional Guard:
          period mismatch: 'FY2024' vs 'as_of_2024-12-31'
          (cannot add 'Total revenue' and 'Cash and cash equivalents')
-Baseline: confidently returns $4,820,000,000  (a flow + a stock, summed)
+Baseline: confidently returns a summed revenue and cash figure (a flow + a stock, summed)
 ```
 
 Adding a period total (revenue, a *flow*) to a point-in-time balance (cash, a *stock*) is meaningless. The Dimensional Guard rejects it on the `kind` dimension before any arithmetic happens. The baseline happily adds them.
