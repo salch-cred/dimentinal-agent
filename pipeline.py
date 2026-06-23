@@ -81,13 +81,16 @@ Spans (id: text  [context]):
 """
 
 
-def extract_ledger(question: str, spans: List[Span]) -> Dict[str, EvidenceTuple]:
+def extract_ledger(question: str, spans: List[Span], feedback: str = None) -> Dict[str, EvidenceTuple]:
     """Ask the model to type every relevant figure; validate against schema."""
     valid_ids = {sp.id for sp in spans}
     spans_text = "\n".join(
         f"{sp.id}: {sp.text}  [context: {sp.context}]" for sp in spans
     )
-    out = llm_json(EXTRACT_PROMPT.format(q=question, spans=spans_text))
+    prompt = EXTRACT_PROMPT.format(q=question, spans=spans_text)
+    if feedback:
+        prompt += f"\n\nFeedback from previous attempt:\n{feedback}\nPlease correct the issues listed above."
+    out = llm_json(prompt)
     tuples_raw = out.get("tuples", []) if isinstance(out, dict) else []
 
     ledger: Dict[str, EvidenceTuple] = {}
@@ -148,7 +151,7 @@ Tuples (id: metric = value [unit, period, entity, kind]):
 """
 
 
-def plan(question: str, ledger: Dict[str, EvidenceTuple]) -> List[ComputeStep]:
+def plan(question: str, ledger: Dict[str, EvidenceTuple], feedback: str = None) -> List[ComputeStep]:
     if not ledger:
         return []
     summary = "\n".join(
@@ -156,7 +159,10 @@ def plan(question: str, ledger: Dict[str, EvidenceTuple]) -> List[ComputeStep]:
         f"[{t.unit}, {t.period}, {t.entity}, {t.kind}]"
         for tid, t in ledger.items()
     )
-    out = llm_json(PLAN_PROMPT.format(q=question, ledger_summary=summary))
+    prompt = PLAN_PROMPT.format(q=question, ledger_summary=summary)
+    if feedback:
+        prompt += f"\n\nFeedback from previous attempt:\n{feedback}\nPlease correct the issues listed above."
+    out = llm_json(prompt)
     steps_raw = out.get("steps", []) if isinstance(out, dict) else []
     steps: List[ComputeStep] = []
     for s in steps_raw:
@@ -200,6 +206,30 @@ def plan(question: str, ledger: Dict[str, EvidenceTuple]) -> List[ComputeStep]:
                 steps = [ComputeStep(op="pct_change", operands=pair)]
             except Exception:
                 pass
+
+    # ---- Plan repair: "as a percentage of" / "% of" queries ----
+    # If the question asks for "X as a percentage of Y" and the plan is
+    # malformed (identity, or ratio with same operand yielding 1.0), find
+    # the two distinct metrics and build a proper ratio.
+    is_pct_of = any(k in q_lower for k in
+                    ("as a percentage of", "% of", "as a % of",
+                     "spending as a percentage", "as a share of"))
+    if is_pct_of and len(ledger) >= 2:
+        # Check if current plan is degenerate (identity or same-operand ratio)
+        needs_repair = not has_binary_op
+        if not needs_repair:
+            for s in steps:
+                if s.op in ("ratio", "div") and len(set(s.operands)) < 2:
+                    needs_repair = True
+                    break
+        if needs_repair:
+            pair = _find_different_metric_pair(ledger, q_lower)
+            if pair:
+                try:
+                    steps = [ComputeStep(op="ratio", operands=pair)]
+                except Exception:
+                    pass
+
     return steps
 
 
@@ -215,6 +245,59 @@ def _find_same_metric_period_pair(ledger: Dict[str, EvidenceTuple]) -> List[str]
             if len(periods) >= 2:
                 return ids[:2]
     return []
+
+
+def _find_different_metric_pair(ledger: Dict[str, EvidenceTuple], q_lower: str) -> List[str]:
+    """Find numerator and denominator tuples for 'X as a percentage of Y' queries.
+
+    Heuristic: the denominator is the metric mentioned after 'of' in the question
+    (e.g. 'total revenue' in 'R&D as a percentage of total revenue').
+    The numerator is the other metric.
+    """
+    # Try to find 'of <denominator>' pattern
+    import re as _re
+    denom_match = _re.search(r"(?:percentage|%)\s+of\s+(.+?)(?:\?|$)", q_lower)
+    denom_hint = denom_match.group(1).strip() if denom_match else ""
+
+    # Score each tuple against the denominator hint
+    tids = list(ledger.keys())
+    if len(tids) < 2:
+        return []
+
+    # Find the best denominator match
+    best_denom = None
+    best_denom_score = -1
+    best_numer = None
+    best_numer_score = -1
+
+    denom_tokens = set(denom_hint.split()) if denom_hint else set()
+
+    for tid in tids:
+        t = ledger[tid]
+        metric_lower = (t.metric or "").lower()
+        metric_tokens = set(metric_lower.split())
+
+        if denom_tokens:
+            overlap = len(denom_tokens & metric_tokens)
+            if overlap > best_denom_score:
+                best_denom_score = overlap
+                best_denom = tid
+
+    # The numerator is the tuple that is NOT the denominator
+    if best_denom is not None:
+        for tid in tids:
+            if tid != best_denom:
+                t = ledger[tid]
+                # Same period as denominator preferred
+                if ledger[tid].period == ledger[best_denom].period:
+                    best_numer = tid
+                    break
+        if best_numer is None:
+            best_numer = [t for t in tids if t != best_denom][0]
+        return [best_numer, best_denom]
+
+    # Fallback: just return first two different-metric tuples
+    return tids[:2]
 
 
 # --------------------------------------------------------------------------- #

@@ -24,7 +24,17 @@ class DimensionError(Exception):
 
 
 # Extend if multi-currency documents appear. Everything normalizes to USD=1.0.
-CURRENCY_RATES: Dict[str, float] = {"USD": 1.0, "EUR": 1.08, "GBP": 1.26}
+CURRENCY_RATES: Dict[str, float] = {
+    "USD": 1.0, 
+    "EUR": 1.08, 
+    "GBP": 1.26,
+    "CAD": 0.73,
+    "AUD": 0.66,
+    "JPY": 0.0064,
+    "CNY": 0.14,
+    "INR": 0.012,
+    "CHF": 1.11,
+}
 
 
 def _period_sort_key(period: str) -> Tuple:

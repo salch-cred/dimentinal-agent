@@ -70,10 +70,12 @@ def run_performance_test():
     print(f"Verifier Verdict: {proof.verifier_verdict}")
     print(f"Total Pipeline Execution Time: {t_pipeline:.3f}s")
     
-    # Clean up the generated file to keep workspace clean (optional but good practice)
-    # If the user wants to test it on the UI, they can leave the file there.
-    # So we will KEEP the file under sample_data so they can upload it on the frontend!
-    print(f"\nSaved file at '{path}' so you can upload and test it in your browser UI!")
+    # Clean up the generated file to keep workspace clean
+    try:
+        os.remove(path)
+        print(f"\nCleaned up generated file at '{path}' successfully.")
+    except Exception as e:
+        print(f"\nFailed to clean up generated file at '{path}': {e}")
 
 if __name__ == "__main__":
     run_performance_test()

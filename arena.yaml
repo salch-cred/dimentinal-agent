@@ -1,0 +1,17 @@
+name: "dimensional-proof-carrying-qa"
+version: "0.1.0"
+competition: "office-qa"
+
+agent:
+  type: "harness"
+  harness_name: "codex"
+  model: "openai/gpt-4o-mini"
+  prompt_template_path: "prompts/officeqa_prompt.j2"
+  config:
+    reasoning_effort: "high"
+  env:
+    OPENROUTER_API_KEY: "${oc.env:OPENROUTER_API_KEY,''}"
+
+environment:
+  memory: "8Gi"
+  timeout_per_task: 600

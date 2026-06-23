@@ -13,6 +13,94 @@ from typing import List
 
 from schemas import Span
 
+
+def _resolve_cell_val(ws, cell, visiting) -> float:
+    coord = cell.coordinate
+    if coord in visiting:
+        return 0.0  # cycle detected
+    visiting.add(coord)
+    
+    val = cell.value
+    if val is None:
+        visiting.remove(coord)
+        return 0.0
+    if isinstance(val, str) and val.startswith("="):
+        res = _evaluate_formula(ws, val, visiting)
+        visiting.remove(coord)
+        return res
+    
+    visiting.remove(coord)
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _expand_range(ws, range_str: str, visiting) -> float:
+    total = 0.0
+    try:
+        cells = ws[range_str]
+        if isinstance(cells, tuple):
+            for row in cells:
+                for cell in row:
+                    total += _resolve_cell_val(ws, cell, visiting)
+        else:
+            total += _resolve_cell_val(ws, cells, visiting)
+    except Exception:
+        pass
+    return total
+
+
+def _evaluate_formula(ws, formula_str: str, visiting=None) -> float:
+    if visiting is None:
+        visiting = set()
+    
+    formula = formula_str.strip().upper()
+    if formula.startswith("="):
+        formula = formula[1:]
+        
+    # 1. Resolve SUM(A1:B3) or SUM(A1, B2)
+    while True:
+        m = re.search(r"SUM\(([^)]+)\)", formula)
+        if not m:
+            break
+        sum_arg_str = m.group(1)
+        args = sum_arg_str.split(",")
+        sum_val = 0.0
+        for arg in args:
+            arg = arg.strip()
+            if ":" in arg:
+                sum_val += _expand_range(ws, arg, visiting)
+            else:
+                if re.match(r"^[A-Z]+\d+$", arg):
+                    cell = ws[arg]
+                    sum_val += _resolve_cell_val(ws, cell, visiting)
+                else:
+                    try:
+                        sum_val += float(arg)
+                    except ValueError:
+                        sum_val += _evaluate_formula(ws, "=" + arg, visiting)
+        formula = formula[:m.start()] + str(sum_val) + formula[m.end():]
+        
+    # 2. Resolve single cell references
+    while True:
+        m = re.search(r"\b([A-Z]+\d+)\b", formula)
+        if not m:
+            break
+        coord = m.group(1)
+        cell = ws[coord]
+        val = _resolve_cell_val(ws, cell, visiting)
+        formula = formula[:m.start()] + str(val) + formula[m.end():]
+        
+    # 3. Safe arithmetic evaluation
+    if not re.match(r"^[0-9.+\-*/()\s]+$", formula):
+        return 0.0
+        
+    try:
+        return float(eval(formula, {"__builtins__": {}}))
+    except Exception:
+        return 0.0
+
 # Tokens that signal a scale qualifier; the extractor reads these from context.
 _SCALE_HINTS = {
     "thousands": 1e3,
@@ -57,10 +145,20 @@ def _sheet_scale_hint(ws_title: str, all_text: str) -> str:
 def ingest_xlsx(path: str) -> List[Span]:
     import openpyxl
 
-    wb = openpyxl.load_workbook(path, data_only=True)
+    wb = openpyxl.load_workbook(path, data_only=False)
     spans: List[Span] = []
     for ws in wb.worksheets:
-        rows = list(ws.iter_rows(values_only=True))
+        rows_cells = list(ws.iter_rows(values_only=False))
+        rows = []
+        for row_c in rows_cells:
+            row_vals = []
+            for cell in row_c:
+                val = cell.value
+                if isinstance(val, str) and val.startswith("="):
+                    val = _evaluate_formula(ws, val)
+                row_vals.append(val)
+            rows.append(row_vals)
+
         # Pre-scan all text on the sheet for a scale footnote.
         sheet_text = " ".join(
             str(v) for row in rows for v in (row or []) if v is not None
@@ -91,12 +189,24 @@ def ingest_xlsx(path: str) -> List[Span]:
             continue
 
         # Data rows come after the header. Column A is the metric label.
+        current_parent = ""
         for ri in range(header_idx + 1, len(rows)):
             raw_row = rows[ri] or []
             row = [("" if v is None else str(v)) for v in raw_row]
             if not any(c.strip() for c in row):
+                current_parent = ""  # Reset parent category on empty separator rows
                 continue
             metric_label = _clean(row[0]) if row else ""
+            
+            # Category header heuristic: Column A is populated, but other columns are empty.
+            if metric_label and not any(c.strip() for c in row[1:]):
+                current_parent = metric_label
+                continue
+                
+            full_metric_label = metric_label
+            if current_parent and metric_label and metric_label != current_parent:
+                full_metric_label = f"{current_parent} — {metric_label}"
+                
             for ci, val in enumerate(row):
                 if not val.strip():
                     continue
@@ -116,8 +226,8 @@ def ingest_xlsx(path: str) -> List[Span]:
                         except ValueError:
                             pass
                 parts = [f"sheet={ws.title}"]
-                if metric_label:
-                    parts.append(f"metric={metric_label}")
+                if full_metric_label:
+                    parts.append(f"metric={full_metric_label}")
                 if col_name:
                     parts.append(f"period={col_name}")
                 if hint and not is_percent:
@@ -129,8 +239,8 @@ def ingest_xlsx(path: str) -> List[Span]:
                 # Rich text: include the metric + period so retrieval & the
                 # extractor both see the figure in full context.
                 rich = display
-                if metric_label and ci > 0:
-                    rich = f"{metric_label} ({col_name}): {display}"
+                if full_metric_label and ci > 0:
+                    rich = f"{full_metric_label} ({col_name}): {display}"
                 spans.append(Span(
                     id=f"{ws.title}__{openpyxl.utils.get_column_letter(ci+1)}{ri+1}",
                     text=_clean(rich),
@@ -302,9 +412,47 @@ _STOP = set("a an the of for to in on at and or is are was were be been being "
             "this that these those it its as by with from per vs versus what "
             "how many much did does do company's company".split())
 
+_SYNONYMS = {
+    "revenue": {"sales", "turnover"},
+    "sales": {"revenue", "turnover"},
+    "turnover": {"revenue", "sales"},
+    "income": {"earnings", "profit"},
+    "earnings": {"income", "profit"},
+    "profit": {"income", "earnings"},
+    "cash": {"liquidity", "equivalents"},
+    "growth": {"change", "increase", "decrease", "yoy"},
+    "margin": {"ratio", "percent", "percentage"},
+    "debt": {"borrowing", "loan", "liabilities"},
+    "equity": {"stockholders", "shareholders"},
+    "research": {"development", "rd"},
+    "development": {"research", "rd"},
+    "rd": {"research", "development"},
+    "spending": {"expenditure", "expense", "expenses", "cost"},
+    "expenditure": {"spending", "expense", "expenses", "cost"},
+    "assets": {"property", "goodwill", "investments"},
+    "operating": {"operations"},
+    "free": {"fcf"},
+    "dividends": {"dividend", "payout"},
+}
+
 
 def _tokens(text: str) -> set:
-    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in _STOP and len(w) > 1}
+    text_clean = text.lower().replace("r&d", "rd").replace("r & d", "rd")
+    return {w for w in re.findall(r"[a-z0-9]+", text_clean) if w not in _STOP and len(w) > 1}
+
+
+# Key financial metrics that should be strongly preferred over noise rows
+_KEY_METRICS = {
+    "total revenue", "cost of revenue", "gross profit", "operating income",
+    "net income", "operating expenses", "interest expense", "cash flow",
+    "free cash flow", "operating cash flow", "capital expenditures",
+    "total assets", "total liabilities", "stockholders' equity",
+    "current assets", "current liabilities", "long-term debt",
+    "cash and cash equivalents", "diluted eps", "dividends",
+    "research", "development", "goodwill", "accounts receivable",
+    "gross margin", "operating margin", "segment", "cloud", "enterprise",
+    "americas", "europe", "asia", "emea", "apac",
+}
 
 
 def retrieve(question: str, spans: List[Span], k: int = 15) -> List[Span]:
@@ -318,10 +466,23 @@ def retrieve(question: str, spans: List[Span], k: int = 15) -> List[Span]:
     if not qtoks:
         return spans[:k]
 
+    # Increase k for ratio/percentage/cross-sheet queries
+    q_lower = question.lower()
+    needs_more = any(w in q_lower for w in
+                     ("ratio", "percentage", "% of", "as a percentage",
+                      "margin", "debt-to", "plus", "combined"))
+    effective_k = max(k, 25) if needs_more else k
+
+    # Expand query tokens with common financial synonyms
+    expanded_qtoks = set(qtoks)
+    for tok in qtoks:
+        if tok in _SYNONYMS:
+            expanded_qtoks.update(_SYNONYMS[tok])
+
     scored = []
     for sp in spans:
         stoks = _tokens(sp.text) | _tokens(sp.context)
-        overlap = len(qtoks & stoks)
+        overlap = len(expanded_qtoks & stoks)
         score = overlap
         if re.search(r"\d", sp.text):
             score += 0.5
@@ -330,8 +491,15 @@ def retrieve(question: str, spans: List[Span], k: int = 15) -> List[Span]:
         for word in _SCALE_HINTS:
             if word in question.lower() and word in sp.context.lower():
                 score += 1.0
+        # Boost key financial metrics over noise rows like "Expense Line Item 1234"
+        sp_lower = sp.text.lower()
+        if any(m in sp_lower for m in _KEY_METRICS):
+            score += 2.0
+        # Penalize noise rows (generic expense/asset line items)
+        if re.search(r"(expense line item|asset line)\s*\d+", sp_lower):
+            score -= 5.0
         if score > 0:
             scored.append((score, sp))
 
     scored.sort(key=lambda t: t[0], reverse=True)
-    return [sp for _, sp in scored[:k]] if scored else spans[:k]
+    return [sp for _, sp in scored[:effective_k]] if scored else spans[:effective_k]
