@@ -1,15 +1,19 @@
-name: "dimensional-proof-carrying-qa"
-version: "0.1.0"
+name: "dimensional-officeqa"
+version: "1.0.0"
 competition: "office-qa"
 
 agent:
   type: "harness"
-  harness_name: "codex"
+  # Permitted harnesses: codex, goose, openhands, opencode.
+  # goose is what the current leaderboard leaders use and it inlines SKILL.md
+  # bodies (opencode does not — see the challenge "Known Issues").
+  harness_name: "goose"
+  # The evaluator runs your solution with ITS OWN model (MiniMax M2.7).
+  # This field only affects local dev runs.
   model: "openai/gpt-4o"
   prompt_template_path: "prompts/officeqa_prompt.j2"
   config:
     reasoning_effort: "high"
 
 environment:
-  memory: "8Gi"
   timeout_per_task: 600
