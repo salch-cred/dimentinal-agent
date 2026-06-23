@@ -87,6 +87,7 @@ CRITICAL: Check for scale/unit footnotes!
 - If values are "in thousands", multiply by 1,000.
 - If values are "in millions", multiply by 1,000,000.
 - If values are "in billions", multiply by 1,000,000,000.
+- Scale factors apply to DOLLAR amounts ONLY — never multiply percentages, rates, or margins by the scale.
 
 ═══════════════════════════════════════════════════════════════
 STEP 4: COMPUTE THE ANSWER WITH PYTHON
@@ -94,7 +95,7 @@ STEP 4: COMPUTE THE ANSWER WITH PYTHON
 Write and execute a Python script that:
 1. Loads the specific cells you identified
 2. Applies the correct scale factor
-3. Performs the required calculation (lookup, addition, subtraction, percentage change, ratio, etc.)
+3. Performs the required calculation
 4. Prints the final answer
 
 Example for a simple lookup:
@@ -102,7 +103,7 @@ Example for a simple lookup:
 import openpyxl
 wb = openpyxl.load_workbook("<PATH>", data_only=True)
 ws = wb["<SHEET_NAME>"]
-value = ws["C5"].value  # The cell containing the answer
+value = ws["C5"].value
 scale = 1000  # From "in thousands" footnote
 answer = value * scale
 print(f"Answer: {answer}")
@@ -110,63 +111,72 @@ print(f"Answer: {answer}")
 
 Example for YoY growth:
 ```python
-value_2023 = ws["B5"].value * scale
-value_2024 = ws["C5"].value * scale
-growth = ((value_2024 - value_2023) / value_2023) * 100
+value_old = ws["B5"].value * scale
+value_new = ws["C5"].value * scale
+growth = ((value_new - value_old) / value_old) * 100
 print(f"YoY Growth: {growth:.2f}%")
 ```
 
-Example for a ratio:
-```python
-numerator = ws["C10"].value * scale
-denominator = ws["C5"].value * scale
-ratio = numerator / denominator
-print(f"Ratio: {ratio:.4f}")
-```
+═══════════════════════════════════════════════════════════════
+STEP 5: DIMENSIONAL GUARD — MANDATORY CHECKS (CRITICAL)
+═══════════════════════════════════════════════════════════════
+Before finalizing your answer, you MUST run ALL of these checks.
+If ANY check fails, go back to Step 3 and correct the error.
+
+🔴 GUARD 1 — PERIOD MATCHING:
+   You CANNOT add or subtract figures from DIFFERENT time periods.
+   - Adding FY2023 Revenue + FY2024 Revenue = ❌ INVALID
+   - Subtracting Q1-2023 from Q1-2024 for YoY growth = ✅ VALID
+   - For YoY growth: formula is ((new_period - old_period) / old_period) × 100
+   - Ensure chronological order: new_period > old_period
+
+🔴 GUARD 2 — FLOW vs STOCK:
+   You CANNOT combine a period FLOW with a point-in-time STOCK.
+   - FLOWS (period-based): Revenue, Net Income, Operating Income, Cash Flow, Expenses
+   - STOCKS (point-in-time): Total Assets, Total Liabilities, Equity, Cash on Hand, Debt
+   - Adding Revenue (flow) + Total Assets (stock) = ❌ INVALID — these are dimensional incompatibles
+   - If the question asks for this, output: rejected
+
+🔴 GUARD 3 — ENTITY MATCHING:
+   You CANNOT combine consolidated totals with specific segment figures.
+   - If the question asks for "consolidated" revenue, do NOT use a regional/segment number
+   - If the question asks for "Americas segment", do NOT use the total company number
+   - Mixing consolidated + segment figures = ❌ INVALID
+
+🔴 GUARD 4 — SCALE NORMALIZATION:
+   - "$ in thousands" → multiply raw cell value by 1,000 (applies to $ amounts only)
+   - "$ in millions" → multiply raw cell value by 1,000,000 (applies to $ amounts only)
+   - Percentage cells (e.g., 0.152 displayed as 15.2%) → report as 15.2, not 0.152 or 15200
+   - Do NOT apply scale multipliers to percentages, ratios, or EPS values
+   - Example: Cell says 150,000, footnote says "in thousands" → answer is 150,000,000
+
+🔴 GUARD 5 — YEAR/PERIOD ACCURACY:
+   - Re-read the question. Does it ask for FY2023 or FY2024?
+   - Confirm the column label matches EXACTLY — Treasury Bulletins often have both years
+   - "September 30, 2023" and "September 30, 2024" are in adjacent columns — don't swap them
+
+🔴 GUARD 6 — METRIC ACCURACY:
+   - Re-read the question. "Total Revenue" ≠ "Operating Revenue" ≠ "Net Revenue"
+   - "Net Income" ≠ "Operating Income" ≠ "Gross Profit"
+   - Use the EXACT metric the question names, not a similar-sounding one
 
 ═══════════════════════════════════════════════════════════════
-STEP 5: SELF-VERIFICATION — CHECK YOUR WORK
+STEP 6: SELF-VERIFICATION — SANITY CHECK
 ═══════════════════════════════════════════════════════════════
-Before giving your final answer, VERIFY each of these checkpoints:
-
-✅ CHECK 1 — CORRECT YEAR/PERIOD:
-   Re-read the question. Does it ask for FY2023 or FY2024? Q1 or Q4?
-   Confirm the column you used matches EXACTLY the period asked.
-
-✅ CHECK 2 — CORRECT METRIC:
-   Re-read the question. Did you use "Total Revenue" when it asked for "Net Income"?
-   Did you use a segment figure when it asked for consolidated?
-   Confirm the row label matches EXACTLY what was asked.
-
-✅ CHECK 3 — CORRECT SCALE:
-   Did you find a "in thousands" or "in millions" note?
-   Confirm you multiplied the raw cell value by the correct scale factor.
-   Example: Cell says 150,000 with "in thousands" → answer is 150,000,000.
-
-✅ CHECK 4 — CORRECT CALCULATION:
-   For percentage change: formula is ((new - old) / old) × 100. Confirm new > old makes sense.
-   For ratios: confirm numerator and denominator are not swapped.
-   For lookups: confirm you are reading the single value, not a sum.
-
-✅ CHECK 5 — DIMENSIONAL SANITY:
-   Does the answer make economic sense?
-   Revenue of a large company should be in millions or billions, not thousands.
-   A growth rate should typically be between -100% and +500%.
-   If the answer seems wrong, recheck the scale footnote.
-
-If ANY check fails, go back to Step 3 and correct the error before proceeding.
+Ask yourself:
+- Does the answer make economic sense? Revenue of a large company = billions, not thousands.
+- Is a growth rate between -100% and +500%? If not, recheck scale.
+- Is a ratio between 0 and 10 for most financial ratios? If not, recheck numerator/denominator.
+- Did you use the right file? Treasury Bulletins span multiple years — confirm the file year.
 
 ═══════════════════════════════════════════════════════════════
-STEP 6: OUTPUT YOUR FINAL ANSWER
+STEP 7: OUTPUT YOUR FINAL ANSWER
 ═══════════════════════════════════════════════════════════════
-State your reasoning briefly, then give the final numerical answer.
-
-STRICT OUTPUT FORMAT RULES (follow exactly — format errors cost points):
-- Dollar amounts: output as a plain integer or decimal (e.g., 150000000 or 150000000.00). Do NOT include $ signs or commas.
-- Percentages: output the number followed by % with 2 decimal places (e.g., 25.00%). Do NOT include the word "percent".
-- Ratios: output as a decimal with 4 decimal places (e.g., 0.3500). Do NOT include × or x.
-- Large numbers: do NOT use commas as thousand separators (e.g., write 1500000 not 1,500,000).
-- Always apply the correct scale factor before reporting.
-- If the question asks for "as reported" values, give the raw number WITHOUT scaling.
-- Be precise — use the exact values from the cells. Do not round unless the question asks for rounding.
-- Never output units like "USD", "dollars", "million" — just the number (and % for percentages).
+STRICT OUTPUT FORMAT RULES (format errors cost points):
+- Dollar amounts: plain integer or decimal — NO $ signs, NO commas (e.g., 150000000)
+- Percentages: number followed by % with 2 decimal places (e.g., 25.00%) — NO word "percent"
+- Ratios: decimal with 4 decimal places (e.g., 0.3500) — NO × or x symbol
+- Large numbers: NO thousand-separator commas (write 1500000 not 1,500,000)
+- Scale already applied: do not include units like "USD", "dollars", "million" — just the number
+- If dimensional guard rejects the question (invalid combination): output the word "rejected"
+- Be precise — use exact values from cells, do not round unless asked

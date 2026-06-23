@@ -500,8 +500,7 @@ _DEFAULT_ROOTS = [
     "./corpus",
     "/corpus",
 ]
-if "VERCEL" in os.environ:
-    _DEFAULT_ROOTS.append("/tmp")
+
 
 DOCS_ROOTS = []
 for _r in os.environ.get("DOCS_ROOTS", "").split(os.pathsep):

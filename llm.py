@@ -6,7 +6,6 @@ No network access required — runs entirely offline inside the Arena sandbox.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -486,6 +485,6 @@ def extract_json_from_text(text: str) -> Any:
     raise ValueError("No valid JSON found in response")
 
 
-def llm_json(prompt: str, *, use_cache: bool = True) -> dict[str, Any]:
+def llm_json(prompt: str) -> dict[str, Any]:
     """Process prompt using local pattern-matching responder. No external API calls."""
     return _mock_json(prompt)
