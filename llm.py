@@ -221,7 +221,7 @@ def _mock_json(prompt: str) -> dict:
 
     # Build candidate figures from rich spans: "<metric> (<period>): <value>".
     # The metric may itself contain a parenthetical (e.g. "Net income
-    # (consolidated) (FY2024): 520000"), so the PERIOD is the LAST
+    # (consolidated) (FY2024): 123456"), so the PERIOD is the LAST
     # parenthetical immediately before the colon — use a greedy metric.
     figures = []  # (span_id, metric, period, value, raw, ctx)
     for sid, text, ctx in spans:
