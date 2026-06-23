@@ -142,6 +142,138 @@ def _sheet_scale_hint(ws_title: str, all_text: str) -> str:
     return ""
 
 
+def _make_markdown_table_spans(ws, rows, hint: str) -> List[Span]:
+    if not rows:
+        return []
+    import openpyxl
+    lines = []
+    max_cols = max(len(r) for r in rows) if rows else 0
+    if max_cols == 0:
+        return []
+    for ri, row in enumerate(rows):
+        row_str_parts = []
+        for ci in range(max_cols):
+            val = row[ci] if ci < len(row) else None
+            cell_ref = f"{openpyxl.utils.get_column_letter(ci+1)}{ri+1}"
+            if val is None or not str(val).strip():
+                row_str_parts.append("")
+            else:
+                display = str(val)
+                try:
+                    cell_obj = ws.cell(row=ri + 1, column=ci + 1)
+                    nf = (cell_obj.number_format or "")
+                    if "%" in nf:
+                        display = f"{float(val) * 100:g}%"
+                except Exception:
+                    pass
+                row_str_parts.append(f"{_clean(display)} [{cell_ref}]")
+        lines.append("| " + " | ".join(row_str_parts) + " |")
+        if ri == 0:
+            lines.append("| " + " | ".join(["---"] * max_cols) + " |")
+    spans = []
+    chunk_size = 50
+    for i in range(0, len(lines), chunk_size):
+        chunk_lines = lines[i:i+chunk_size]
+        if i > 0 and len(lines) > 2:
+            chunk_lines = [lines[0], lines[1]] + chunk_lines
+        chunk_text = "\n".join(chunk_lines)
+        spans.append(Span(
+            id=f"{ws.title}__layout_chunk_{i//chunk_size}",
+            text=chunk_text,
+            context=f"sheet={ws.title} layout=table chunk={i//chunk_size} scale={hint or '1.0'}",
+            source=f"{ws.title}!layout_chunk_{i//chunk_size}",
+        ))
+    return spans
+
+
+def _make_csv_markdown_table_spans(path: str, reader: List[List[str]]) -> List[Span]:
+    if not reader:
+        return []
+    lines = []
+    max_cols = max(len(r) for r in reader) if reader else 0
+    if max_cols == 0:
+        return []
+    for ri, row in enumerate(reader):
+        row_str_parts = []
+        for ci in range(max_cols):
+            val = row[ci] if ci < len(row) else ""
+            cell_ref = f"r{ri+1}c{ci+1}"
+            if not val.strip():
+                row_str_parts.append("")
+            else:
+                row_str_parts.append(f"{_clean(val)} [{cell_ref}]")
+        lines.append("| " + " | ".join(row_str_parts) + " |")
+        if ri == 0:
+            lines.append("| " + " | ".join(["---"] * max_cols) + " |")
+    spans = []
+    chunk_size = 50
+    base_name = os.path.basename(path)
+    for i in range(0, len(lines), chunk_size):
+        chunk_lines = lines[i:i+chunk_size]
+        if i > 0 and len(lines) > 2:
+            chunk_lines = [lines[0], lines[1]] + chunk_lines
+        chunk_text = "\n".join(chunk_lines)
+        spans.append(Span(
+            id=f"csv__layout_chunk_{i//chunk_size}",
+            text=chunk_text,
+            context=f"file={base_name} layout=table chunk={i//chunk_size}",
+            source=f"file={base_name} layout_chunk_{i//chunk_size}",
+        ))
+    return spans
+
+
+def _make_pdf_markdown_table_spans(page_no: int, ti: int, table: List[List[str]]) -> List[Span]:
+    if not table:
+        return []
+    lines = []
+    max_cols = max(len(r) for r in table) if table else 0
+    if max_cols == 0:
+        return []
+    for ri, row in enumerate(table):
+        row_str_parts = []
+        for ci in range(max_cols):
+            val = row[ci] if ci < len(row) else ""
+            cell_ref = f"r{ri+1}c{ci+1}"
+            if val is None or not str(val).strip():
+                row_str_parts.append("")
+            else:
+                row_str_parts.append(f"{_clean(str(val))} [{cell_ref}]")
+        lines.append("| " + " | ".join(row_str_parts) + " |")
+        if ri == 0:
+            lines.append("| " + " | ".join(["---"] * max_cols) + " |")
+    chunk_text = "\n".join(lines)
+    return [Span(
+        id=f"pdf__p{page_no}_t{ti}_layout",
+        text=chunk_text,
+        context=f"page={page_no} table={ti} layout=table",
+        source=f"page={page_no} table={ti} layout",
+    )]
+
+
+def _get_merged_cell_value(ws, cell) -> Any:
+    val = cell.value
+    if val is not None:
+        return val
+    # Check if this cell is within any merged ranges
+    for r in ws.merged_cells.ranges:
+        if cell.coordinate in r:
+            # Top-left cell of the merged range
+            return ws.cell(row=r.min_row, column=r.min_col).value
+    return None
+
+
+def _local_scale_hint(rows: List[List[Any]], current_row_idx: int, sheet_hint: str) -> str:
+    """Scan 5 rows above/below current_row_idx for local scale overrides."""
+    start = max(0, current_row_idx - 5)
+    end = min(len(rows), current_row_idx + 6)
+    for ri in range(start, end):
+        row_text = " ".join(str(v) for v in (rows[ri] or []) if v is not None).lower()
+        for word in ("thousands", "millions", "billions"):
+            if re.search(rf"\bin\s+{word}\b", row_text):
+                return f"$ in {word}"
+    return sheet_hint
+
+
 def ingest_xlsx(path: str) -> List[Span]:
     import openpyxl
 
@@ -153,7 +285,7 @@ def ingest_xlsx(path: str) -> List[Span]:
         for row_c in rows_cells:
             row_vals = []
             for cell in row_c:
-                val = cell.value
+                val = _get_merged_cell_value(ws, cell)
                 if isinstance(val, str) and val.startswith("="):
                     val = _evaluate_formula(ws, val)
                 row_vals.append(val)
@@ -163,7 +295,7 @@ def ingest_xlsx(path: str) -> List[Span]:
         sheet_text = " ".join(
             str(v) for row in rows for v in (row or []) if v is not None
         )
-        hint = _sheet_scale_hint(ws.title, sheet_text)
+        sheet_hint = _sheet_scale_hint(ws.title, sheet_text)
 
         # Find the header row: first row that looks like a period header.
         header_idx = None
@@ -186,6 +318,8 @@ def ingest_xlsx(path: str) -> List[Span]:
                         context=f"sheet={ws.title}",
                         source=f"{ws.title}!{openpyxl.utils.get_column_letter(ci+1)}{ri+1}",
                     ))
+            # Generate layout chunks for this ws
+            spans.extend(_make_markdown_table_spans(ws, rows, sheet_hint))
             continue
 
         # Data rows come after the header. Column A is the metric label.
@@ -207,6 +341,9 @@ def ingest_xlsx(path: str) -> List[Span]:
             if current_parent and metric_label and metric_label != current_parent:
                 full_metric_label = f"{current_parent} — {metric_label}"
                 
+            # Scan for a local scale hint near this row
+            row_hint = _local_scale_hint(rows, ri, sheet_hint)
+
             for ci, val in enumerate(row):
                 if not val.strip():
                     continue
@@ -225,13 +362,29 @@ def ingest_xlsx(path: str) -> List[Span]:
                             is_percent = True
                         except ValueError:
                             pass
+                
+                # Heuristic: if the row contains "margin"/"rate"/"%" and the value
+                # is a float between -1.0 and 1.0 (e.g. 0.152), scale it to percent (15.2%)
+                if 0 < ci and ci < len(raw_row) and not is_percent:
+                    metric_lower = full_metric_label.lower()
+                    col_lower = col_name.lower()
+                    is_margin_term = any(term in metric_lower or term in col_lower for term in ("margin", "rate", "%", "percentage"))
+                    if is_margin_term:
+                        try:
+                            fval = float(val)
+                            if -1.0 <= fval <= 1.0 and fval != 0.0:
+                                display = f"{fval * 100:g}"
+                                is_percent = True
+                        except ValueError:
+                            pass
+
                 parts = [f"sheet={ws.title}"]
                 if full_metric_label:
                     parts.append(f"metric={full_metric_label}")
                 if col_name:
                     parts.append(f"period={col_name}")
-                if hint and not is_percent:
-                    parts.append(hint)  # "$ in thousands" doesn't apply to a %
+                if row_hint and not is_percent:
+                    parts.append(row_hint)  # "$ in thousands" doesn't apply to a %
                 if is_percent:
                     parts.append("unit=percent")
                 ctx = " ".join(parts)
@@ -247,6 +400,8 @@ def ingest_xlsx(path: str) -> List[Span]:
                     context=ctx,
                     source=cell_ref,
                 ))
+        # Generate layout chunks for this ws
+        spans.extend(_make_markdown_table_spans(ws, rows, sheet_hint))
     return spans
 
 
@@ -270,6 +425,8 @@ def ingest_csv(path: str) -> List[Span]:
                 context=f"column={_clean(col_name)}",
                 source=f"row={ri} col={_clean(col_name)}",
             ))
+    # Generate layout chunks for this CSV
+    spans.extend(_make_csv_markdown_table_spans(path, reader))
     return spans
 
 
@@ -311,6 +468,8 @@ def ingest_pdf(path: str) -> List[Span]:
                             context=" ".join(ctx_parts),
                             source=f"page={page_no} table={ti} row={ri} col={_clean(col_name)}",
                         ))
+                # Generate layout chunks for this PDF table
+                spans.extend(_make_pdf_markdown_table_spans(page_no, ti, table))
             # Also keep plain text lines as spans (covers prose like footnotes).
             text = page.extract_text() or ""
             for li, line in enumerate(text.splitlines(), start=1):
@@ -461,26 +620,28 @@ _STOP = set("a an the of for to in on at and or is are was were be been being "
             "how many much did does do company's company".split())
 
 _SYNONYMS = {
-    "revenue": {"sales", "turnover"},
-    "sales": {"revenue", "turnover"},
-    "turnover": {"revenue", "sales"},
-    "income": {"earnings", "profit"},
-    "earnings": {"income", "profit"},
-    "profit": {"income", "earnings"},
-    "cash": {"liquidity", "equivalents"},
-    "growth": {"change", "increase", "decrease", "yoy"},
-    "margin": {"ratio", "percent", "percentage"},
-    "debt": {"borrowing", "loan", "liabilities"},
-    "equity": {"stockholders", "shareholders"},
-    "research": {"development", "rd"},
-    "development": {"research", "rd"},
-    "rd": {"research", "development"},
-    "spending": {"expenditure", "expense", "expenses", "cost"},
-    "expenditure": {"spending", "expense", "expenses", "cost"},
-    "assets": {"property", "goodwill", "investments"},
-    "operating": {"operations"},
-    "free": {"fcf"},
-    "dividends": {"dividend", "payout"},
+    "revenue": {"sales", "turnover", "inflow"},
+    "sales": {"revenue", "turnover", "inflow"},
+    "turnover": {"revenue", "sales", "inflow"},
+    "income": {"earnings", "profit", "net"},
+    "earnings": {"income", "profit", "net"},
+    "profit": {"income", "earnings", "net"},
+    "cash": {"liquidity", "equivalents", "cash-flow"},
+    "growth": {"change", "increase", "decrease", "yoy", "growth-rate"},
+    "margin": {"ratio", "percent", "percentage", "profitability"},
+    "debt": {"borrowing", "loan", "liabilities", "obligation"},
+    "equity": {"stockholders", "shareholders", "capital"},
+    "research": {"development", "rd", "r&d"},
+    "development": {"research", "rd", "r&d"},
+    "rd": {"research", "development", "r&d"},
+    "spending": {"expenditure", "expense", "expenses", "cost", "outlay"},
+    "expenditure": {"spending", "expense", "expenses", "cost", "outlay"},
+    "expenses": {"spending", "expenditure", "expense", "cost", "outlay"},
+    "expense": {"spending", "expenditure", "expenses", "cost", "outlay"},
+    "assets": {"property", "goodwill", "investments", "resources"},
+    "operating": {"operations", "opex"},
+    "free": {"fcf", "cashflow"},
+    "dividends": {"dividend", "payout", "distribution"},
 }
 
 
@@ -546,6 +707,15 @@ def retrieve(question: str, spans: List[Span], k: int = 15) -> List[Span]:
         # Penalize noise rows (generic expense/asset line items)
         if re.search(r"(expense line item|asset line)\s*\d+", sp_lower):
             score -= 5.0
+        # Boost layout chunk spans if the sheet/file matches the query
+        if "layout=table" in sp.context:
+            sheet_title_match = False
+            for word in qtoks:
+                if word in sp.context.lower() or word in sp_lower:
+                    sheet_title_match = True
+                    break
+            if sheet_title_match:
+                score += 3.0
         if score > 0:
             scored.append((score, sp))
 

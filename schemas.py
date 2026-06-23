@@ -59,3 +59,9 @@ class Span(BaseModel):
     text: str
     context: str = ""   # table title / column header / footnote ("$ in thousands")
     source: str = ""    # e.g. "page=3 table=1 row=2 col=Revenue" or "Sheet1!B4"
+
+
+# The combined output schema for extraction and planning.
+class ExtractAndPlanOutput(BaseModel):
+    tuples: List[EvidenceTuple] = Field(default_factory=list)
+    plan_steps: List[ComputeStep] = Field(default_factory=list)

@@ -5,12 +5,10 @@ competition: "office-qa"
 agent:
   type: "harness"
   harness_name: "codex"
-  model: "openai/gpt-4o-mini"
+  model: "openai/gpt-4o"
   prompt_template_path: "prompts/officeqa_prompt.j2"
   config:
     reasoning_effort: "high"
-  env:
-    OPENROUTER_API_KEY: "${oc.env:OPENROUTER_API_KEY,''}"
 
 environment:
   memory: "8Gi"

@@ -1,18 +1,8 @@
-"""Thin LLM wrapper — provider-agnostic (OpenAI-compatible).
+"""Local LLM responder — no external API calls.
 
-Works with any provider whose API matches the OpenAI Chat Completions shape:
-Mistral, OpenRouter, OpenAI, Groq, Together, DeepSeek, Ollama, etc. The
-provider is chosen by which env var you set:
-
-    MISTRAL_API_KEY          -> https://api.mistral.ai/v1          (model: mistral-medium-latest)
-    OPENROUTER_API_KEY       -> https://openrouter.ai/api/v1       (model: openai/gpt-4o-mini)
-    OPENAI_API_KEY           -> https://api.openai.com/v1          (model: gpt-4o-mini)
-    LLM_BASE_URL + LLM_API_KEY + MODEL  -> any compatible endpoint
-
-temperature=0 everywhere for reproducibility. Persistent on-disk cache so demo
-re-runs are instant and free, and a runaway retry loop can't burn credits.
-MOCK mode: if NO key is set, a rule-based responder stands in so the whole
-pipeline still runs end-to-end without network access.
+Deterministic pattern-matching responder for the proof-carrying pipeline.
+Extracts structured data from spreadsheet spans using regex heuristics.
+No network access required — runs entirely offline inside the Arena sandbox.
 """
 from __future__ import annotations
 
@@ -20,109 +10,12 @@ import hashlib
 import json
 import os
 import re
-from typing import Any, Optional
-
-from dotenv import load_dotenv
-
-load_dotenv()
-
-CACHE_PATH = os.path.join(os.path.dirname(__file__), "cache.json")
-
-_client = None
-_model: Optional[str] = None
-
-
-# Provider presets: env var name -> (base_url, default model).
-_PROVIDERS = [
-    ("MISTRAL_API_KEY",    "https://api.mistral.ai/v1", "mistral-medium-latest"),
-    ("OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini"),
-    ("OPENAI_API_KEY",     "https://api.openai.com/v1", "gpt-4o-mini"),
-]
-
-
-def _is_placeholder(key: str, provider_var: str) -> bool:
-    """A key that's empty or still the .env.example placeholder -> mock mode."""
-    if not key:
-        return True
-    # each provider's example placeholder
-    placeholders = {
-        "MISTRAL_API_KEY": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "OPENROUTER_API_KEY": "sk-or-v1-x",
-    }
-    ph = placeholders.get(provider_var)
-    return bool(ph and key.startswith(ph))
-
-
-def _get_client():
-    """Build the OpenAI client for whichever provider key is configured.
-
-    Priority: explicit LLM_BASE_URL+LLM_API_KEY > MISTRAL > OPENROUTER > OPENAI.
-    Returns None (mock mode) when no usable key is found.
-    """
-    global _client, _model
-    if _client is not None:
-        return _client
-
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
-
-    # 1) Fully explicit override (any OpenAI-compatible endpoint).
-    explicit_key = os.environ.get("LLM_API_KEY", "").strip()
-    explicit_url = os.environ.get("LLM_BASE_URL", "").strip()
-    if explicit_key and explicit_url:
-        base_url, api_key = explicit_url, explicit_key
-
-    # 2) Provider presets.
-    if not api_key:
-        for var, url, default_model in _PROVIDERS:
-            key = os.environ.get(var, "").strip()
-            if not _is_placeholder(key, var):
-                base_url, api_key = url, key
-                # use the provider's default model only if MODEL isn't set
-                if not os.environ.get("MODEL"):
-                    _model = default_model
-                break
-
-    # No usable key -> mock mode.
-    if not api_key:
-        return None
-
-    from openai import OpenAI
-    _client = OpenAI(base_url=base_url, api_key=api_key)
-    if not _model:
-        _model = os.environ.get("MODEL", "gpt-4o-mini")
-    return _client
-
-
-def _load_cache() -> dict:
-    if os.path.exists(CACHE_PATH):
-        try:
-            with open(CACHE_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-
-def _save_cache(cache: dict) -> None:
-    try:
-        with open(CACHE_PATH, "w", encoding="utf-8") as f:
-            json.dump(cache, f, ensure_ascii=False)
-    except Exception:
-        pass
-
-
-_cache: dict = _load_cache()
-
-
-def _hash(prompt: str) -> str:
-    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+from typing import Any
 
 
 # --------------------------------------------------------------------------- #
-#  Mock responder — keeps the pipeline runnable with no API key.              #
-#  It pattern-matches numbers in the provided spans. This is NOT used when a  #
-#  real key is present.                                                       #
+#  Mock responder — deterministic, no API key needed.                          #
+#  It pattern-matches numbers in the provided spans.                           #
 # --------------------------------------------------------------------------- #
 def _parse_spans_block(prompt: str) -> list[tuple[str, str, str]]:
     """Pull (span_id, text, context) tuples out of an 'id: text [context:]' block.
@@ -214,9 +107,9 @@ def _mock_json(prompt: str) -> dict:
 
     # Pull the question out of the prompt for relevance scoring.
     qtext = ""
-    qm = re.search(r"^question:\s*(.+?)(?:\n\s*spans|\n\s*tuples|\Z)", prompt, re.M | re.I)
-    if qm:
-        qtext = qm.group(1).strip()
+    qms = list(re.finditer(r"^question:\s*(.+?)(?:\n\s*spans|\n\s*tuples|\Z)", prompt, re.M | re.I))
+    if qms:
+        qtext = qms[-1].group(1).strip()
     qtoks = _qtokens(qtext)
 
     # Build candidate figures from rich spans: "<metric> (<period>): <value>".
@@ -255,6 +148,94 @@ def _mock_json(prompt: str) -> dict:
         q = f"q{qm.group(1)}" if qm else None
         return (year, q)
 
+    # ---- Combined Extract & Plan prompt ----
+    if "extract" in low and "plan" in low and ("tuple" in low or "ledger" in low):
+        # Rank figures by relevance to the question.
+        qyear, qq = _period_key(qtext)
+
+        def relevance(f):
+            sid, metric, period, val, raw, ctx = f
+            mtoks = _qtokens(metric)
+            mscore = len(qtoks & mtoks)
+            fyear, fq = _period_key(period)
+            pscore = 0.0
+            if qyear and fyear == qyear:
+                pscore = 3.0
+                if qq and fq and fq != qq:
+                    pscore = 0.0
+            escore = 0.0
+            is_segment = bool(re.search(r"segment|subsidiary|division", metric, re.I))
+            if re.search(r"\bconsolidated\b|\bnot\b.*segment", qtext, re.I):
+                escore = -5.0 if is_segment else 0.5
+            return mscore + pscore + escore
+
+        ranked = sorted(figures, key=relevance, reverse=True)
+        def norm_metric(m):
+            return re.sub(r"^.*?[\-–—]\s*", "", m).strip().lower()
+
+        chosen = []
+        seen_sid = set()
+        if ranked:
+            top_nm = norm_metric(ranked[0][1])
+            for f in ranked:
+                if norm_metric(f[1]) == top_nm and f[0] not in seen_sid:
+                    chosen.append(f)
+                    seen_sid.add(f[0])
+            chosen = chosen[:4]
+        tuples = []
+        as_reported = bool(re.search(r"as reported|as printed|under the .* footnote", qtext, re.I))
+        for sid, metric, period, val, raw, ctx in chosen:
+            is_percent = "unit=percent" in ctx
+            if is_percent:
+                unit = "percent"
+                scale = 1.0
+            else:
+                unit = _guess_unit(metric, ctx)
+                scale = 1.0 if as_reported else _guess_scale(raw, ctx)
+            mentity = re.search(r"segment|subsidiary|division|unit", metric, re.I)
+            entity = metric.strip() if mentity else "consolidated"
+            tuples.append({
+                "id": sid,
+                "value": val,
+                "unit": unit,
+                "scale": scale,
+                "currency": "USD" if unit == "USD" else None,
+                "entity": entity,
+                "period": period,
+                "kind": _guess_kind(metric, ctx) if not is_percent else "rate",
+                "metric": metric,
+                "source_span": sid,
+                "raw_text": raw,
+            })
+        seen = set()
+        for t in tuples:
+            base = t["source_span"]
+            t["id"] = base
+            seen.add(base)
+
+        # Decide the op from the question using the chosen tuples.
+        ql = qtext.lower()
+        steps = []
+        if tuples:
+            if any(k in ql for k in ("growth", "change", "increase", "yoy", "year-over-year")):
+                by_metric = {}
+                for t in tuples:
+                    by_metric.setdefault(t["metric"], []).append(t["id"])
+                step = None
+                for metric, ids in by_metric.items():
+                    if len(ids) >= 2:
+                        step = {"op": "pct_change", "operands": ids[:2]}
+                        break
+                steps = [step] if step else [{"op": "identity", "operands": [tuples[0]["id"]]}]
+            elif any(k in ql for k in ("margin", "ratio", "%", "percentage")):
+                steps = [{"op": "identity", "operands": [tuples[0]["id"]]}]
+            elif "plus" in ql or "add" in ql or ("and" in ql and "sum" in ql):
+                ids = [t["id"] for t in tuples[:2]]
+                steps = [{"op": "add", "operands": ids}]
+            else:
+                steps = [{"op": "identity", "operands": [tuples[0]["id"]]}]
+        return {"tuples": tuples, "steps": steps}
+
     # ---- Extraction prompt ----
     if "extract" in low and ("tuple" in low or "ledger" in low):
         # Rank figures by relevance to the question.
@@ -281,11 +262,6 @@ def _mock_json(prompt: str) -> dict:
             return mscore + pscore + escore
 
         ranked = sorted(figures, key=relevance, reverse=True)
-        # Build the candidate set: the top metric (and its other periods, for
-        # pct_change questions) plus up to 4 total. We group on a normalized
-        # metric (strip leading "Cloud Segment —" type prefixes) so e.g.
-        # "Net income (consolidated)" and "Cloud Segment — net income" are
-        # treated as the same metric for grouping purposes.
         def norm_metric(m):
             return re.sub(r"^.*?[\-–—]\s*", "", m).strip().lower()
 
@@ -299,12 +275,8 @@ def _mock_json(prompt: str) -> dict:
                     seen_sid.add(f[0])
             chosen = chosen[:4]
         tuples = []
-        # "As reported / as printed" questions want the raw printed number, not
-        # the scale-normalized one. Detect that intent and freeze scale to 1.0.
         as_reported = bool(re.search(r"as reported|as printed|under the .* footnote", qtext, re.I))
         for sid, metric, period, val, raw, ctx in chosen:
-            # Percent cells already carry their true magnitude (40.87) and a
-            # "unit=percent" context marker; rate values are NOT scaled.
             is_percent = "unit=percent" in ctx
             if is_percent:
                 unit = "percent"
@@ -312,8 +284,6 @@ def _mock_json(prompt: str) -> dict:
             else:
                 unit = _guess_unit(metric, ctx)
                 scale = 1.0 if as_reported else _guess_scale(raw, ctx)
-            # Entity: detect a named segment/subsidiary in the metric label,
-            # otherwise consolidated.
             mentity = re.search(r"segment|subsidiary|division|unit", metric, re.I)
             entity = metric.strip() if mentity else "consolidated"
             tuples.append({
@@ -378,8 +348,6 @@ def _mock_json(prompt: str) -> dict:
         return {"verdict": "survived", "reason": "mock verifier: no contradiction found"}
 
     # ---- Baseline answer ----
-    # Optimized baseline: normalized to absolute value unless "as reported" is asked,
-    # and returns null (None) for incompatible flow+stock questions.
     ql = qtext.lower()
     
     # 1. Flow + Stock check
@@ -422,7 +390,6 @@ def _mock_json(prompt: str) -> dict:
         y_match = re.search(r"(20\d{2})", ql)
         year = y_match.group(1) if y_match else "2024"
         
-        # If there is a direct lookup row in figures for gross margin % or gross margin:
         if "gross margin" in ql:
             gm_figs = [f for f in figures if "gross margin" in f[1].lower() and year in f[2]]
             if gm_figs:
@@ -480,54 +447,45 @@ def _mock_json(prompt: str) -> dict:
     return {"answer": None, "citation": None}
 
 
-MAX_CACHE_ENTRIES = 2000  # bound the on-disk cache (disk-fill DoS guard)
+def extract_json_from_text(text: str) -> Any:
+    """Extract and parse JSON from a model's text response, which may be wrapped in Markdown blocks."""
+    text_clean = text.strip()
+    try:
+        return json.loads(text_clean)
+    except json.JSONDecodeError:
+        pass
+
+    # Try to find a JSON block in markdown code blocks: ```json ... ``` or ``` ... ```
+    m = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text_clean)
+    if m:
+        try:
+            return json.loads(m.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+
+    # Try to find the first occurrence of { and matching }
+    first_brace = text_clean.find('{')
+    last_brace = text_clean.rfind('}')
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        candidate = text_clean[first_brace:last_brace+1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # Try to find the first occurrence of [ and matching ]
+    first_bracket = text_clean.find('[')
+    last_bracket = text_clean.rfind(']')
+    if first_bracket != -1 and last_bracket != -1 and last_bracket > first_bracket:
+        candidate = text_clean[first_bracket:last_bracket+1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError("No valid JSON found in response")
 
 
 def llm_json(prompt: str, *, use_cache: bool = True) -> dict[str, Any]:
-    """Call the model and parse JSON. Mocks when no key is configured."""
-    h = _hash(prompt)
-    if use_cache and h in _cache:
-        return _cache[h]
-
-    client = _get_client()
-    if client is None:
-        out = _mock_json(prompt)
-    else:
-        try:
-            r = client.chat.completions.create(
-                model=_model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0,
-            )
-            content = r.choices[0].message.content
-            out = json.loads(content)
-        except (json.JSONDecodeError, ValueError, KeyError, IndexError, TypeError) as e:
-            # Recoverable: bad/empty model output. Fall back to mock + flag it.
-            # (Scoped — genuine bugs like NameError/AttributeError still raise.)
-            out = _mock_json(prompt)
-            out["_llm_error"] = f"parse: {e}"
-        except Exception as e:
-            # Network / quota / rate-limit / API errors. The openai SDK raises
-            # its own exception types ( subclasses); catch broadly but log so
-            # auth misconfig isn't silently hidden. We deliberately do NOT
-            # include the API key in the message.
-            try:
-                import logging
-                logging.getLogger("proof.llm").warning(
-                    "LLM call failed (%s); falling back to mock", type(e).__name__
-                )
-            except Exception:
-                pass
-            out = _mock_json(prompt)
-            out["_llm_error"] = f"{type(e).__name__}: request failed"
-
-    # Bound the cache: FIFO-evict oldest entries past the cap so a hostile
-    # client sending unique questions can't grow cache.json without limit.
-    _cache[h] = out
-    if len(_cache) > MAX_CACHE_ENTRIES:
-        for k in list(_cache.keys())[: len(_cache) - MAX_CACHE_ENTRIES]:
-            _cache.pop(k, None)
-    if use_cache:
-        _save_cache(_cache)
-    return out
+    """Process prompt using local pattern-matching responder. No external API calls."""
+    return _mock_json(prompt)
